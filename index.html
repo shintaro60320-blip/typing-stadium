@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="ja">
 <head>
-<!-- タイピングスタジアム / build 2026-10-31 16:20 -->
+<!-- タイピングスタジアム / build 2026-10-31 16:32 -->
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>タイピングスタジアム</title>
@@ -80,6 +80,29 @@ html, body {
 /* 球場の画面では点数だけにして、打球を隠さない */
 #board.low .row:nth-child(n+3), #board.low .mini { display: none; }
 #pitchlabel.away { display: none; }
+
+/* 音のオン・オフ（左下。どの画面でも見える。押すと切りかわる） */
+#soundBtn {
+  position: absolute;
+  left: calc(6px * var(--s));
+  bottom: calc(6px * var(--s));
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: calc(2px * var(--s));
+  font: inherit;
+  font-size: calc(7px * var(--s));
+  color: var(--ink);
+  background: rgba(14, 18, 32, .85);
+  border: 0;
+  border-radius: calc(2px * var(--s));
+  padding: calc(2px * var(--s)) calc(4px * var(--s));
+  cursor: pointer;
+}
+#soundBtn svg { width: calc(9px * var(--s)); height: calc(9px * var(--s)); display: block; }
+#soundBtn .on { color: var(--next); }
+#soundBtn.off { color: var(--ink-soft); }
+#soundBtn.off .on { color: var(--miss); }
 #board .row { display: flex; justify-content: space-between; align-items: center; gap: calc(6px * var(--s)); }
 #board .lab { color: var(--ink-dim); }
 #board .num { color: var(--next); font-variant-numeric: tabular-nums; }
@@ -379,6 +402,7 @@ html, body {
     <div id="linescore" hidden></div>
     <div id="banner" hidden></div>
     <div id="flash" hidden></div>
+    <button id="soundBtn" type="button" tabindex="-1" aria-pressed="true" title="おとの オン・オフ（M キー）"></button>
 
     <section id="splash" class="layer">
       <h1>タイピングスタジアム</h1>
@@ -1756,6 +1780,7 @@ window.WORDS = {
       function tone(f, d, opt) { const s = sound(); if (s) s.tone(f, d, opt); }
       function noise(d, v, opt) { const s = sound(); if (s) s.noise(d, v, opt); }
       function speak(text) {
+        if (!S || !S.on) return; // 音がオフの時は しゃべらない
         try {
           const synth = root.speechSynthesis;
           if (!synth || !root.SpeechSynthesisUtterance) return;
@@ -1974,7 +1999,7 @@ window.WORDS = {
     ] },
     { key: 'style', label: 'おてほん', opts: [['hepburn', 'shi・chi', 'おてほんの かきかた。どちらで うっても せいかい'], ['kunrei', 'si・ti', 'おてほんの かきかた。どちらで うっても せいかい']] },
   ];
-  const settings = { mode: 'match', rush: false, level: 'g12', diff: 'normal', style: 'hepburn', name: '' };
+  const settings = { mode: 'match', rush: false, level: 'g12', diff: 'normal', style: 'hepburn', name: '', sound: true };
   try {
     const s = JSON.parse(localStorage.getItem('typing-stadium') || '{}');
     if (s.mode === 'free') settings.mode = 'free';
@@ -1983,6 +2008,7 @@ window.WORDS = {
     if (s.diff) settings.diff = Rules.diffOf(s.diff);
     if (s.style === 'kunrei') settings.style = 'kunrei';
     settings.name = Ranking.cleanName(s.name);
+    if (s.sound === false) settings.sound = false;
   } catch (e) { /* 保存できない環境でも遊べる */ }
   function saveSettings() { try { localStorage.setItem('typing-stadium', JSON.stringify(settings)); } catch (e) { /* なし */ } }
 
@@ -2597,6 +2623,32 @@ window.WORDS = {
     ui.rankview.hidden = false;
   }
 
+  // ---- 音のオン・オフ（左下の印。押しても M キーでも切りかわる。えらんだ状態は覚えておく） ----
+  const soundBtn = $('soundBtn');
+  const SPEAKER = '<path d="M3 9h4l5-4v14l-5-4H3z" fill="currentColor"/>';
+  function renderSoundBtn() {
+    const on = Sound.on;
+    soundBtn.classList.toggle('off', !on);
+    soundBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    soundBtn.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true">' + SPEAKER +
+      (on ? '<path class="on" d="M15 9.5c1.2 1.4 1.2 3.6 0 5M17.5 7c2.6 2.8 2.6 7.2 0 10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>'
+          : '<path class="on" d="M15 9l6 6M21 9l-6 6" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>') +
+      '</svg><span>おと <span class="on">' + (on ? 'オン' : 'オフ') + '</span></span>';
+  }
+  function toggleSound() {
+    Sound.on = !Sound.on;
+    settings.sound = Sound.on;
+    saveSettings();
+    if (!Sound.on) { try { if (window.speechSynthesis) window.speechSynthesis.cancel(); } catch (e) { /* なし */ } }
+    renderSoundBtn();
+    if (Sound.on) { Sound.init(); Sound.play('key'); }
+  }
+  // 画面のクリック（スタート・とばす）より先に受け取って、そちらには伝えない
+  soundBtn.addEventListener('pointerdown', (e) => { e.stopPropagation(); });
+  soundBtn.addEventListener('click', (e) => { e.stopPropagation(); toggleSound(); soundBtn.blur(); });
+  Sound.on = settings.sound;
+  renderSoundBtn();
+
   // ---- オープニング（opening.js は Codex が作った。11.5秒・音と声つき・どのキーでも とばせる） ----
   let movie = null;
   function startOpening() {
@@ -2903,7 +2955,7 @@ window.WORDS = {
       else if (k === ' ' || k === 'Enter') { e.preventDefault(); startGame(); }
       else if (k === 'r' || k === 'R') showRanking();
       else if (k === 'o' || k === 'O') startOpening();
-      else if (k === 'm' || k === 'M') Sound.on = !Sound.on;
+      else if (k === 'm' || k === 'M') toggleSound();
       if (k.indexOf('Arrow') === 0) e.preventDefault();
       return;
     }
@@ -2917,7 +2969,7 @@ window.WORDS = {
     }
     if (phase === 'pitch' || phase === 'rush') { typeKey(e); return; }
     if (k === ' ' || k === 'Enter') { e.preventDefault(); skip(); return; }
-    if (k === 'm' || k === 'M') Sound.on = !Sound.on;
+    if (k === 'm' || k === 'M') toggleSound();
   });
 
   // ---- 大きさ合わせ ----
