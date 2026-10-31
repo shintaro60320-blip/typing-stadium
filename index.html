@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="ja">
 <head>
-<!-- タイピングスタジアム / build 2026-11-01 00:56 -->
+<!-- タイピングスタジアム / build 2026-11-01 01:52 -->
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>タイピングスタジアム</title>
@@ -415,6 +415,19 @@ html, body {
 #foot { margin: 0; font-size: 13px; color: var(--ink-dim); text-align: center; }
 
 </style>
+<!-- pwa:start　アプリとして入れる仕組み（build.py は配る用の1つの HTML からこの塊を外す） -->
+<meta name="theme-color" content="#1a1a2e">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<script>
+// サービスワーカーの登録。http(s) で開いた時だけ（file:// で開いた時は何もしない）。失敗してもゲームは動く
+if ("serviceWorker" in navigator && /^https?:$/.test(location.protocol)) {
+  addEventListener("load", function () {
+    navigator.serviceWorker.register("sw.js").catch(function () {});
+  });
+}
+</script>
+<!-- pwa:end -->
 </head>
 <body>
 <main id="app">
