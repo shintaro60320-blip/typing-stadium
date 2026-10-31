@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="ja">
 <head>
-<!-- タイピングスタジアム / build 2026-10-31 22:36 -->
+<!-- タイピングスタジアム / build 2026-10-31 23:43 -->
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>タイピングスタジアム</title>
@@ -419,7 +419,7 @@ html, body {
 <body>
 <main id="app">
   <div id="screen">
-    <canvas id="cv" width="256" height="224"></canvas>
+    <canvas id="cv" width="512" height="448"></canvas>
 
     <div id="board" hidden></div>
     <div id="pitchlabel" hidden></div>
@@ -1206,13 +1206,33 @@ window.WORDS = {
 </script>
 <script>
 // 作画（ドット絵）。外部の画像は使わず、すべてここでドットを打って描く
-// 画面は 256×224 ドット。打つチーム＝白と紺、守るチーム＝グレーと赤（どちらもオリジナルの配色）
+// 画面の座標は 256×224。実際のキャンバスは 2倍（512×448）で、人物と線は 0.5 ドットの細かさで描く
+// 打つチーム＝白と紺、守るチーム＝グレーと赤（どちらもオリジナルの配色）
 (function (root) {
   'use strict';
 
   const W = 256, H = 224;
-  let G = null; // いま描いている先
-  function use(ctx) { G = ctx; }
+  const SCALE = 2;           // キャンバスの倍率（1 座標 = 2×2 の実ドット）
+  let G = null;              // いま描いている先
+  let S = 1, q = 1;          // いまの倍率と、いちばん小さいドット（1/S）
+  // scale を省くと キャンバスの幅から決める（確認用に 大きく描く時だけ 渡す）
+  function use(ctx, scale) {
+    G = ctx;
+    S = scale || Math.max(1, Math.round(ctx.canvas.width / W));
+    q = 1 / S;
+    G.setTransform(S, 0, 0, S, 0, 0);
+    G.imageSmoothingEnabled = false;
+  }
+  // 絵を描いたキャンバスを作る（背景を1回だけ描いて使い回す）
+  function layer(draw) {
+    const c = root.document.createElement('canvas');
+    c.width = W * SCALE; c.height = H * SCALE;
+    const before = G;
+    use(c.getContext('2d'));
+    draw();
+    if (before) use(before);
+    return c;
+  }
 
   const C = {
     K: '#1a1a2e', white: '#f4f1e8', whiteD: '#cfc9ba', whiteL: '#ffffff',
@@ -1221,6 +1241,7 @@ window.WORDS = {
     red: '#c8423a', redD: '#8f2a25', redL: '#e06b62',
     skin: '#f2c29b', skinD: '#d49c72', blush: '#e89a8c', hair: '#3a2a20',
     bat: '#d8a657', batD: '#a87a35', batL: '#f0c77c', glove: '#8a5a2b', gloveD: '#5e3c1b', gloveL: '#b07a42',
+    shoe: '#24242f', shoeL: '#4a4a5e',
     sky: '#0d1330', sky2: '#141b3d', stand: '#1d2546', standD: '#151b33', seat: '#283158',
     screen: '#16382a', screenL: '#f2d46b',
     fence: '#1f5a3a', fenceD: '#174a2f', fenceTop: '#f2c94c',
@@ -1230,41 +1251,49 @@ window.WORDS = {
   };
   const CROWD = ['#4a5a8f', '#6a78a8', '#8a5f72', '#9a8a62', '#4f7a78', '#a8987c', '#7d6aa0', '#b06a5a'];
 
-  // ---- ドットを打つ道具 ----
-  function rect(x, y, w, h, c) { G.fillStyle = c; G.fillRect(Math.round(x), Math.round(y), Math.round(w), Math.round(h)); }
+  // ---- ドットを打つ道具（座標は 256×224。細かさ q にそろえる） ----
+  const snap = (v) => Math.round(v * S) / S;
+  function rect(x, y, w, h, c) {
+    G.fillStyle = c;
+    const x0 = snap(x), y0 = snap(y);
+    G.fillRect(x0, y0, snap(x + w) - x0, snap(y + h) - y0);
+  }
   function px(x, y, c) { rect(x, y, 1, 1, c); }
+  function dot(x, y, c) { rect(x, y, q, q, c); }        // いちばん小さいドット
   function orect(x, y, w, h, c) { rect(x - 1, y - 1, w + 2, h + 2, C.K); rect(x, y, w, h, c); }
   function disc(cx, cy, r, c, maxY) {
     G.fillStyle = c;
-    const R = Math.floor(r), x0 = Math.round(cx), y0 = Math.round(cy);
-    for (let dy = -R; dy <= R; dy++) {
+    const N = Math.floor(r * S + 1e-6), x0 = snap(cx), y0 = snap(cy);
+    for (let k = -N; k <= N; k++) {
+      const dy = k * q;
       if (maxY !== undefined && y0 + dy > maxY) break;
-      const w = Math.round(Math.sqrt(r * r - dy * dy));
-      G.fillRect(x0 - w, y0 + dy, 2 * w + 1, 1);
+      const w = snap(Math.sqrt(Math.max(0, r * r - dy * dy)) - q / 2);
+      G.fillRect(x0 - w, y0 + dy, 2 * w + q, q);
     }
   }
   function ellipse(cx, cy, rx, ry, c) {
     G.fillStyle = c;
-    const x0 = Math.round(cx), y0 = Math.round(cy), R = Math.floor(ry);
-    for (let dy = -R; dy <= R; dy++) {
-      const w = Math.round(rx * Math.sqrt(Math.max(0, 1 - (dy * dy) / (ry * ry))));
-      G.fillRect(x0 - w, y0 + dy, 2 * w + 1, 1);
+    const x0 = snap(cx), y0 = snap(cy), N = Math.floor(ry * S + 1e-6);
+    for (let k = -N; k <= N; k++) {
+      const dy = k * q;
+      const w = snap(rx * Math.sqrt(Math.max(0, 1 - (dy * dy) / (ry * ry))) - q / 2);
+      G.fillRect(x0 - w, y0 + dy, 2 * w + q, q);
     }
   }
   function poly(pts, c) {
     G.fillStyle = c;
     let minY = Infinity, maxY = -Infinity;
     pts.forEach((p) => { minY = Math.min(minY, p[1]); maxY = Math.max(maxY, p[1]); });
-    for (let y = Math.floor(minY); y <= Math.ceil(maxY); y++) {
-      const yc = y + 0.5, xs = [];
+    for (let y = Math.floor(minY * S) / S; y <= maxY; y += q) {
+      const yc = y + q / 2, xs = [];
       for (let i = 0; i < pts.length; i++) {
         const a = pts[i], b = pts[(i + 1) % pts.length];
         if ((a[1] <= yc && b[1] > yc) || (b[1] <= yc && a[1] > yc)) xs.push(a[0] + (yc - a[1]) * (b[0] - a[0]) / (b[1] - a[1]));
       }
-      xs.sort((p, q) => p - q);
+      xs.sort((p, r) => p - r);
       for (let k = 0; k + 1 < xs.length; k += 2) {
-        const x0 = Math.round(xs[k]), x1 = Math.round(xs[k + 1]);
-        if (x1 > x0) G.fillRect(x0, y, x1 - x0, 1);
+        const x0 = snap(xs[k]), x1 = snap(xs[k + 1]);
+        if (x1 > x0) G.fillRect(x0, y, x1 - x0, q);
       }
     }
   }
@@ -1272,10 +1301,20 @@ window.WORDS = {
     t = t || 1;
     G.fillStyle = c;
     const dx = x1 - x0, dy = y1 - y0;
-    const n = Math.max(1, Math.round(Math.max(Math.abs(dx), Math.abs(dy))));
-    const o = Math.floor(t / 2);
-    for (let i = 0; i <= n; i++) G.fillRect(Math.round(x0 + dx * i / n) - o, Math.round(y0 + dy * i / n) - o, t, t);
+    const n = Math.max(1, Math.round(Math.max(Math.abs(dx), Math.abs(dy)) * S));
+    const o = Math.floor(t * S / 2) / S;
+    for (let i = 0; i <= n; i++) G.fillRect(snap(x0 + dx * i / n) - o, snap(y0 + dy * i / n) - o, t, t);
   }
+  // 丸い端の太い線（手足・バット）。w = 太さ
+  function capsule(a, b, w, c) {
+    const r = w / 2, dx = b[0] - a[0], dy = b[1] - a[1], L = Math.hypot(dx, dy);
+    disc(a[0], a[1], r, c); disc(b[0], b[1], r, c);
+    if (L < 1e-6) return;
+    const nx = -dy / L * r, ny = dx / L * r;
+    poly([[a[0] + nx, a[1] + ny], [b[0] + nx, b[1] + ny], [b[0] - nx, b[1] - ny], [a[0] - nx, a[1] - ny]], c);
+  }
+  // ふちどり（黒）つきの手足
+  function limb(a, b, w, c) { capsule(a, b, w + 2 * q, C.K); capsule(a, b, w, c); }
   function rng(seed) {
     return function () {
       seed |= 0; seed = (seed + 0x6d2b79f5) | 0;
@@ -1284,14 +1323,15 @@ window.WORDS = {
       return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
     };
   }
-  // ある色のところだけ、模様（ざらつき・芝目）をのせる
+  // ある色のところだけ、模様（ざらつき・芝目）をのせる。fn には 256×224 の座標を渡す
   function texture(color, fn) {
-    const img = G.getImageData(0, 0, W, H), d = img.data;
+    const cw = G.canvas.width, ch = G.canvas.height;
+    const img = G.getImageData(0, 0, cw, ch), d = img.data;
     const t = hex(color);
-    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-      const i = (y * W + x) * 4;
+    for (let y = 0; y < ch; y++) for (let x = 0; x < cw; x++) {
+      const i = (y * cw + x) * 4;
       if (d[i] === t[0] && d[i + 1] === t[1] && d[i + 2] === t[2]) {
-        const c = fn(x, y);
+        const c = fn(x / S, y / S);
         if (c) { const v = hex(c); d[i] = v[0]; d[i + 1] = v[1]; d[i + 2] = v[2]; }
       }
     }
@@ -1307,11 +1347,13 @@ window.WORDS = {
     G: '111100101101111', S: '111100111001111', A: '010101111101101', D: '110101101101110', U: '101101101101111',
     M: '101111111101101', H: '101101111101101', E: '111100111100111', B: '110101110101110', O: '111101101101111',
   };
-  function text3(s, x, y, c) {
+  // size = 1ドットの大きさ（ユニフォームの背番号は細かい 0.5 で書く）
+  function text3(s, x, y, c, size) {
+    size = size || 1;
     String(s).split('').forEach((ch, k) => {
       const f = FONT[ch];
       if (!f) return;
-      for (let i = 0; i < 15; i++) if (f[i] === '1') px(x + k * 4 + (i % 3), y + Math.floor(i / 3), c);
+      for (let i = 0; i < 15; i++) if (f[i] === '1') rect(x + (k * 4 + (i % 3)) * size, y + Math.floor(i / 3) * size, size, size, c);
     });
   }
 
@@ -1323,12 +1365,45 @@ window.WORDS = {
       for (let x = x0 + (row % 2 ? 1 : 0); x < x1; x += 3) {
         if (r() < 0.12) continue;                      // 空席
         const shirt = CROWD[Math.floor(r() * CROWD.length)];
-        rect(x, y + 1, 2, 2, shirt);
-        px(x, y, r() < 0.5 ? C.skin : C.skinD);
-        if (r() < 0.06) { px(x + 1, y - 1, C.fenceTop); px(x + 1, y - 2, C.fenceTop); } // 旗・メガホン
+        rect(x, y + 1.5, 2, 1.5, shirt);
+        rect(x + 0.5, y + 0.5, 1, 1, r() < 0.5 ? C.skin : C.skinD);
+        if (r() < 0.06) { rect(x + 1.5, y - 1.5, 0.5, 2, C.fenceTop); } // 旗・メガホン
       }
     }
   }
+
+  // ---- 動きの道具 ----
+  const lerp = (a, b, t) => a + (b - a) * t;
+  const clamp01 = (t) => Math.max(0, Math.min(1, t));
+  const add = (a, b) => [a[0] + b[0], a[1] + b[1]];
+  const mix = (a, b, t) => [lerp(a[0], b[0], t), lerp(a[1], b[1], t)];
+  // 決めポーズ（keys）のあいだを なめらかにつなぐ（カトマル・ロム曲線＝止まらずに通り過ぎる）
+  function tween(keys, u) {
+    u = clamp01(u);
+    let i = 0;
+    while (i < keys.length - 2 && u > keys[i + 1][0]) i++;
+    const k0 = keys[Math.max(0, i - 1)][1], k1 = keys[i][1], k2 = keys[i + 1][1], k3 = keys[Math.min(keys.length - 1, i + 2)][1];
+    const t = clamp01((u - keys[i][0]) / (keys[i + 1][0] - keys[i][0]));
+    const cr = (a, b, c, d) => 0.5 * ((2 * b) + (-a + c) * t + (2 * a - 5 * b + 4 * c - d) * t * t + (-a + 3 * b - 3 * c + d) * t * t * t);
+    const out = {};
+    for (const k in k1) {
+      out[k] = Array.isArray(k1[k])
+        ? [cr(k0[k][0], k1[k][0], k2[k][0], k3[k][0]), cr(k0[k][1], k1[k][1], k2[k][1], k3[k][1])]
+        : cr(k0[k], k1[k], k2[k], k3[k]);
+    }
+    return out;
+  }
+  // ひじ・ひざの位置（2本の骨で a から c に届く形。2通りのうち pick で選ぶ）
+  function ik(a, c, l1, l2, pick) {
+    const dx = c[0] - a[0], dy = c[1] - a[1], d = Math.hypot(dx, dy);
+    if (d < 1e-6) return [a[0], a[1] + l1];
+    const dd = Math.min(d, l1 + l2 - 1e-3), A0 = Math.atan2(dy, dx);
+    const ang = Math.acos(Math.max(-1, Math.min(1, (l1 * l1 + dd * dd - l2 * l2) / (2 * l1 * dd))));
+    const b1 = [a[0] + l1 * Math.cos(A0 + ang), a[1] + l1 * Math.sin(A0 + ang)];
+    const b2 = [a[0] + l1 * Math.cos(A0 - ang), a[1] + l1 * Math.sin(A0 - ang)];
+    return pick(b1, b2) ? b1 : b2;
+  }
+  const RAD = Math.PI / 180;
 
   // =========================================================
   //  打席の画面（キャッチャーの後ろから見る）
@@ -1337,14 +1412,13 @@ window.WORDS = {
   const MITT = [138, 184];
   const BAT_POS = [104, 196];
   const MOUND = [128, 98];
-  const RELEASE = [MOUND[0] + 7, MOUND[1] - 8];
 
   function battingBg() {
     // 夜空と星
     rect(0, 0, W, H, C.sky);
     rect(0, 6, W, 4, C.sky2);
     const r = rng(3);
-    for (let i = 0; i < 26; i++) px(Math.floor(r() * W), Math.floor(r() * 8), r() < 0.3 ? C.light : '#5a6596');
+    for (let i = 0; i < 40; i++) dot(Math.floor(r() * W * 2) / 2, Math.floor(r() * 16) / 2, r() < 0.3 ? C.light : '#5a6596');
     // スタンド
     rect(0, 9, W, 36, C.stand);
     crowdRows(0, W, 11, 43, 7);
@@ -1365,19 +1439,12 @@ window.WORDS = {
     rect(97, 38, 62, 1, '#0f2a1f');
     // フェンス（パッドのつなぎ目とてっぺんの黄色い線）
     rect(0, 44, W, 7, C.fence);
-    for (let x = 0; x < W; x += 16) rect(x, 45, 1, 6, C.fenceD);
+    for (let x = 0; x < W; x += 16) rect(x, 45, 0.5, 6, C.fenceD);
     rect(0, 44, W, 1, C.fenceTop);
     rect(0, 50, W, 1, C.fenceD);
     // 外野の芝（横じま＋市松の芝目）
     for (let y = 51, i = 0; y < H; y += 9, i++) rect(0, y, W, 9, i % 2 ? C.grass : C.grass2);
-    texture(C.grass, (x, y) => (Math.floor(x / 32) % 2 ? C.grassM : null));
-    // ベンチ（三塁側・一塁側）
-    [[0, 1], [W - 26, -1]].forEach(([x, dir]) => {
-      rect(x, 116, 26, 3, C.grayD);
-      rect(x, 119, 26, 10, C.K);
-      for (let i = 0; i < 5; i++) { px(x + 3 + i * 5, 123, C.skin); rect(x + 2 + i * 5, 124, 3, 3, C.navy); }
-      rect(x, 129, 26, 2, C.grayD);
-    });
+    texture(C.grass, (x) => (Math.floor(x / 32) % 2 ? C.grassM : null));
     // 内野の土（ざらつき）
     poly([[128, 62], [234, 113], [186, 212], [70, 212], [22, 113]], C.dirt);
     // 内野の芝
@@ -1394,190 +1461,313 @@ window.WORDS = {
     // ベース（影つき）
     [[204, 113], [128, 72], [52, 113]].forEach(([x, y]) => {
       rect(x - 3, y, 7, 2, C.dirtD);
-      rect(x - 3, y - 2, 7, 3, C.K);
-      rect(x - 2, y - 2, 5, 2, C.white);
+      rect(x - 3.5, y - 2.5, 8, 3.5, C.K);
+      rect(x - 3, y - 2, 7, 2.5, C.white);
+      rect(x - 3, y, 7, 0.5, C.whiteD);
     });
-    // マウンド（上が明るい）
+    // マウンド（上が明るい）とプレート
     ellipse(MOUND[0], MOUND[1] + 1, 14, 5, C.dirtD);
     ellipse(MOUND[0], MOUND[1], 13, 4, C.mound);
     ellipse(MOUND[0], MOUND[1] - 1, 8, 2, C.dirtL);
-    rect(125, MOUND[1] - 1, 7, 1, C.white);
+    rect(125, MOUND[1] - 0.5, 6, 1, C.white);
     // バッターボックスとキャッチャーボックス
     [[96, 178], [142, 178]].forEach(([x, y]) => {
-      rect(x, y, 18, 1, C.white); rect(x, y + 15, 18, 1, C.white);
-      rect(x, y, 1, 16, C.white); rect(x + 17, y, 1, 16, C.white);
+      rect(x, y, 18, 0.5, C.white); rect(x, y + 15.5, 18, 0.5, C.white);
+      rect(x, y, 0.5, 16, C.white); rect(x + 17.5, y, 0.5, 16, C.white);
     });
-    rect(116, 194, 1, 14, C.whiteD); rect(139, 194, 1, 14, C.whiteD);
+    rect(116, 194, 0.5, 14, C.whiteD); rect(139.5, 194, 0.5, 14, C.whiteD);
     // ホームベース（ふちどり）
     poly([[122, 183], [134, 183], [135, 187], [128, 192], [121, 187]], C.K);
-    poly([[123, 184], [133, 184], [134, 187], [128, 191], [122, 187]], C.white);
+    poly([[122.5, 183.5], [133.5, 183.5], [134.5, 187], [128, 191.5], [121.5, 187]], C.white);
+    rect(122.5, 183.5, 11, 0.5, C.whiteL);
   }
 
-  // バッター（打つチーム・右打ち）。frame: stance / swing / follow
-  function batter(x0, y, frame) {
-    ellipse(x0 + 2, y + 1, 11, 2, C.shadow);
-    const spread = frame === 'stance' ? 1 : 4;
-    const legH = frame === 'stance' ? 8 : 9;
-    const lean = frame === 'swing' ? 2 : frame === 'follow' ? 1 : 0;
-    const x = x0 + lean;
-    // 足：ストッキング（紺）とスパイク（黒）
-    const fx = x0 + 2 + spread;
-    orect(x0 - 6, y - legH, 4, legH, C.white);
-    orect(fx, y - legH, 4, legH, C.white);
-    if (frame === 'stance') {                               // ひざを曲げた形：ひざの所を1ドット内へ
-      px(x0 - 3, y - 5, C.K); px(x0 - 7, y - 4, C.white);
-      px(fx, y - 5, C.K); px(fx + 4, y - 4, C.white);
-    }
-    rect(x0 - 6, y - legH, 1, legH, C.whiteD);          // 影
-    rect(fx, y - legH, 1, legH, C.whiteD);
-    rect(x0 - 6, y - 4, 4, 2, C.navy); rect(fx, y - 4, 4, 2, C.navy);
-    if (frame === 'follow') { rect(x0 - 6, y - 2, 4, 2, C.K); px(x0 - 5, y - 2, '#4a4a5e'); } // つま先立ち
-    else { rect(x0 - 7, y - 2, 6, 2, C.K); px(x0 - 6, y - 2, '#4a4a5e'); }
-    rect(fx, y - 2, 6, 2, C.K); px(fx + 1, y - 2, '#4a4a5e');
-    if (frame === 'stance') { px(x0 - 4, y - 6, C.whiteD); px(fx + 2, y - 6, C.whiteD); } // ひざのしわ
-    y += frame === 'stance' ? 1 : 0;                       // かまえは1ドット低い
-    // バット
-    const g = frame === 'stance' ? [x + 4, y - 23] : frame === 'swing' ? [x + 8, y - 18] : [x + 1, y - 24];
-    const tip = frame === 'stance' ? [x - 5, y - 43] : frame === 'swing' ? [x + 29, y - 20] : [x - 15, y - 33];
+  // ---------------------------------------------------------
+  //  バッター（打つチーム・右打ち）
+  //  u = 動きの進み具合：0 かまえ → .25 足を上げる → .45 ふみ出す → .62 当たる → 1 振り終わり
+  //  座標は足もと（x0, y）からのずれ。バットの向き phi（上から見た角度）・eps（上下）で表す
+  //   phi: 0 = キャッチャーの方 / 90 = ホームの方（右）/ 180 = ピッチャーの方 / 270 = 左
+  // ---------------------------------------------------------
+  const BAT_LEN = 20;
+  const SWING_CONTACT = 0.62;
+  const BATTER_KEYS = [
+    [0.00, { hip: [0, -15], neck: [1, -26], head: [2.5, -31], rot: 0, hrot: 0, grip: [-2.5, -27], phi: -35, eps: 58, fF: [4, -3.5], fR: [-5, 0], heel: 0 }],
+    [0.25, { hip: [-1, -15.5], neck: [0, -26.5], head: [1.5, -31.3], rot: -0.08, hrot: -0.05, grip: [-5, -27.5], phi: -45, eps: 60, fF: [5.5, -7], fR: [-5, 0], heel: 0 }],
+    [0.45, { hip: [0.5, -14.2], neck: [1, -25.2], head: [2.5, -30.3], rot: 0, hrot: 0.12, grip: [-4.5, -26.5], phi: -60, eps: 42, fF: [8, -5], fR: [-5, 0], heel: 0 }],
+    [0.62, { hip: [3, -14], neck: [3.5, -25], head: [4.5, -30], rot: 0.55, hrot: 0.65, grip: [8, -19], phi: 100, eps: -3, fF: [8, -5], fR: [-4, -0.6], heel: 1 }],
+    [0.75, { hip: [3.5, -14.5], neck: [4, -25.5], head: [5, -30.5], rot: 0.82, hrot: 0.8, grip: [11, -22], phi: 165, eps: 14, fF: [8, -5], fR: [-3, -1.2], heel: 1 }],
+    [0.87, { hip: [3.3, -14.8], neck: [3.3, -26], head: [4.2, -31], rot: 0.95, hrot: 0.88, grip: [5, -27], phi: 245, eps: 26, fF: [8, -5], fR: [-2, -1.8], heel: 1 }],
+    [1.00, { hip: [3, -15], neck: [2.5, -26.5], head: [3.5, -31.5], rot: 1, hrot: 0.9, grip: [-1, -29], phi: 300, eps: 20, fF: [8, -5], fR: [-1.5, -2], heel: 1 }],
+  ];
+  // バットの向き（上から見た角度・上下の角度）→ 画面の上の向き。奥（ピッチャーの方）は 0.35 にちぢめて上へ
+  function batDir(phi, eps) {
+    const ce = Math.cos(eps * RAD);
+    const x = Math.sin(phi * RAD) * ce, d = -Math.cos(phi * RAD) * ce, h = Math.sin(eps * RAD);
+    return { v: [x, -(h + 0.35 * d)], depth: d };
+  }
+  function batterPose(x0, y, u, wag) {
+    const P = tween(BATTER_KEYS, u);
+    if (wag) P.phi += Math.sin(wag * 3.1) * 7 * (1 - clamp01(u / 0.2)); // かまえている間、バットを小さくゆらす
+    const o = (p) => [x0 + p[0], y + p[1]];
+    const R = P.rot * Math.PI / 2, HR = P.hrot * Math.PI / 2;
+    const sh = o(add(P.neck, [0, 1.6]));
+    const shF = add(sh, [-4.2 * Math.sin(R) + 1.5 * Math.cos(R), -1.2 * Math.cos(R)]);
+    const shR = add(sh, [4.2 * Math.sin(R) - 1.5 * Math.cos(R), 1.2 * Math.cos(R)]);
+    const hip = o(P.hip);
+    const hipF = add(hip, [-2.8 * Math.sin(HR) + 1.0 * Math.cos(HR), -0.8 * Math.cos(HR)]);
+    const hipR = add(hip, [2.8 * Math.sin(HR) - 1.0 * Math.cos(HR), 0.8 * Math.cos(HR)]);
+    const bd = batDir(P.phi, P.eps);
+    const grip = o(P.grip);
+    const top = add(grip, [bd.v[0] * 1.8, bd.v[1] * 1.8]);          // 上の手（右手）は先の方
+    const tip = add(grip, [bd.v[0] * BAT_LEN, bd.v[1] * BAT_LEN]);
+    const knob = add(grip, [-bd.v[0] * 1.2, -bd.v[1] * 1.2]);
+    return { P, sh, shF, shR, hip, hipF, hipR, grip, top, tip, knob, bd, head: o(P.head), neck: o(P.neck), fF: o(P.fF), fR: o(P.fR), x0, y };
+  }
+  function batter(x0, y, u, wag) {
+    if (typeof u === 'string') u = { stance: 0, swing: SWING_CONTACT, follow: 1 }[u] || 0;
+    const Z = batterPose(x0, y, u, wag), P = Z.P;
+    ellipse(x0 + 2, y + 0.5, 12, 2.2, C.shadow);
+    // 足：ひざは打つ方向（右）へ曲がる。ふとももは白、すねは紺のストッキング、くつは黒
+    const leg = (hp, ft, heel) => {
+      const kn = ik(hp, ft, 8, 8.2, (a, b) => a[0] > b[0]);
+      limb(kn, ft, 2.8, C.navy);
+      limb(hp, kn, 3.4, C.white);
+      rect(kn[0] - 1.2, kn[1] - 0.6, 2.4, 0.5, C.whiteD);     // ひざのしわ
+      // くつ：かかとを上げている時は つま先だけ地面につく
+      if (heel) { limb([ft[0] - 0.8, ft[1] - 1.2], [ft[0] + 1.6, ft[1] + 0.2], 1.6, C.shoe); }
+      else { limb([ft[0] - 1.2, ft[1]], [ft[0] + 2.4, ft[1]], 1.8, C.shoe); dot(ft[0] - 0.5, ft[1] - 0.5, C.shoeL); }
+    };
+    // 腕（紺のアンダーシャツ）。ひじは下へ曲がる
+    const arm = (s, hand) => {
+      const el = ik(s, hand, 6.4, 6, (a, b) => a[1] > b[1]);
+      limb(el, hand, 2.2, C.navy);
+      limb(s, el, 2.6, C.navy);
+      disc(s[0], s[1], 1.6, C.white);                          // 半そで
+    };
+    const glove = (p) => { disc(p[0], p[1], 1.7, C.K); disc(p[0], p[1], 1.2, C.red); dot(p[0] - 0.5, p[1] - 0.5, C.redL); };
     const drawBat = () => {
-      line(g[0], g[1], tip[0], tip[1], C.K, 4);
-      line(g[0], g[1], tip[0], tip[1], C.bat, 2);
-      // 先のほうに光、手もとはグリップテープ
-      const hx = lerp(g[0], tip[0], 0.55), hy = lerp(g[1], tip[1], 0.55);
-      line(hx, hy, tip[0], tip[1], C.batL, 1);
-      line(g[0], g[1], lerp(g[0], tip[0], 0.2), lerp(g[1], tip[1], 0.2), '#3a3040', 2);
-      rect(tip[0] - 1, tip[1] - 1, 2, 2, C.batD);
+      const mid = mix(Z.knob, Z.tip, 0.42);
+      limb(Z.knob, mid, 1.3, C.bat);
+      limb(mid, Z.tip, 2.4, C.bat);
+      capsule(mix(Z.knob, Z.tip, 0.55), mix(Z.knob, Z.tip, 0.95), 0.8, C.batL);  // 先のほうの光
+      capsule(Z.knob, mix(Z.knob, Z.tip, 0.18), 1.3, '#3a3040');                 // グリップテープ
     };
-    if (frame !== 'swing') drawBat();
-    // からだ（ユニフォーム）
-    orect(x - 6, y - 21, 12, 12, C.white);
-    rect(x - 6, y - 21, 2, 12, C.whiteD);                 // 左がわの影
-    rect(x - 1, y - 21, 1, 10, C.navy);                   // 前立ての線
-    rect(x - 6, y - 11, 12, 2, C.navyD);                  // ベルト
-    px(x - 1, y - 11, C.fenceTop);                        // バックル
-    rect(x + 1, y - 19, 3, 3, C.navy); px(x + 2, y - 18, C.white); // 胸のマーク
-    rect(x - 6, y - 21, 3, 3, C.navy); rect(x + 3, y - 21, 3, 3, C.navy); // そで
-    // うで（紺のアンダーシャツ＋赤い手ぶくろ）。ひじを1か所はさむ
-    // ひじは胴から少しはなす（かまえは とくに大きく）
-    const out = frame === 'stance' ? 4 : 3;
-    const arms = [[x - 4, y - 19, -out], [x + 4, y - 19, out]].map(([sx, sy, bend]) =>
-      [sx, sy, Math.round((sx + g[0]) / 2) + bend, Math.round((sy + g[1]) / 2) + 3]);
-    arms.forEach(([sx, sy, ex, ey]) => { line(sx, sy, ex, ey, C.K, 4); line(ex, ey, g[0], g[1], C.K, 4); });
-    arms.forEach(([sx, sy, ex, ey]) => { line(sx, sy, ex, ey, C.navy, 2); line(ex, ey, g[0], g[1], C.navy, 2); });
-    const gloves = () => {
-      rect(g[0] - 2, g[1] - 2, 5, 5, C.K);
-      rect(g[0] - 1, g[1] - 1, 3, 3, C.red);
-      px(g[0] - 1, g[1] - 1, C.redL);
-    };
-    if (frame === 'swing') { drawBat(); gloves(); }
-    // 首と頭
-    rect(x - 1, y - 23, 3, 2, C.skinD);
-    disc(x, y - 29, 7, C.K);
-    disc(x, y - 29, 6, C.skin);
-    // ヘルメット：つやと、ふちの暗い線
-    disc(x, y - 30, 6, C.navy, y - 30);
-    rect(x - 6, y - 30, 13, 1, C.navyD);
-    rect(x - 3, y - 34, 4, 1, C.navyL); px(x - 4, y - 33, C.navyL);
-    rect(x + 4, y - 30, 5, 2, C.navyD);                   // つば
-    rect(x - 7, y - 30, 4, 6, C.navy);                    // 耳あて
-    rect(x - 7, y - 25, 4, 1, C.navyD);
-    px(x - 5, y - 28, C.navyL);
-    // 顔：まゆ・目・ほっぺ
-    rect(x + 2, y - 29, 3, 1, C.hair);
-    rect(x + 3, y - 28, 1, 2, C.K);
-    px(x + 4, y - 25, C.blush);
-    px(x - 2, y - 27, C.skinD);                           // 耳
-    // 手ぶくろは頭のあとに描く（首もとで握っていても、バットを持つ手が見えるように）
-    if (frame !== 'swing') gloves();
+    const batBehind = Z.bd.depth > 0.15;
+    if (batBehind) drawBat();
+    leg(Z.hipF, Z.fF, false);
+    leg(Z.hipR, Z.fR, P.heel > 0.5);
+    // からだ（ユニフォーム）：横向き（rot 0）は胸の厚み、後ろ向き（rot 1）は肩はば
+    const tw = 7 + 2.6 * clamp01(P.rot);
+    capsule(Z.sh, Z.hip, tw + 2 * q, C.K);
+    capsule(Z.sh, Z.hip, tw, C.white);
+    const side = [-(tw / 2) + 0.8, 0];                             // 背中がわの影
+    capsule(add(Z.sh, side), add(Z.hip, side), 1.4, C.whiteD);
+    if (P.rot < 0.5) {                                              // 前立て（胸のボタンの線）
+      const fx = (tw / 2) - 1.4;
+      capsule(add(Z.sh, [fx, 0.8]), add(Z.hip, [fx, -1.5]), 0.5, C.navy);
+      rect(Z.sh[0] + fx - 3.2, Z.sh[1] + 1.4, 2, 2, C.navy);      // 胸のマーク
+      dot(Z.sh[0] + fx - 2.7, Z.sh[1] + 1.9, C.white);
+    } else {                                                        // 背番号
+      text3('7', Z.sh[0] - 0.7, Z.sh[1] + 1.6, C.navy, 0.5);
+    }
+    capsule(Z.hipF, Z.hipR, 1.6, C.navyD);                         // ベルト
+    capsule(add(Z.hip, [-tw / 2 + 0.8, 0]), add(Z.hip, [tw / 2 - 0.8, 0]), 1.4, C.navyD);
+    dot(Z.hip[0] + 0.5, Z.hip[1] - 0.25, C.fenceTop);
+    // 首と頭（ヘルメット）。顔はいつもピッチャー〜打球の方を見る
+    const hd = Z.head;
+    capsule(Z.neck, add(hd, [0, 2]), 2.2, C.skinD);
+    disc(hd[0], hd[1], 4.9, C.K);
+    disc(hd[0], hd[1], 4.4, C.skin);
+    disc(hd[0] - 1.4, hd[1] + 0.6, 3.2, C.hair, hd[1] + 1.8);     // 後ろ髪
+    disc(hd[0], hd[1] - 0.4, 4.5, C.navy, hd[1] - 0.6);             // ヘルメット
+    rect(hd[0] - 4.6, hd[1] - 0.8, 6, 3.8, C.navy);                 // 耳あて（キャッチャーがわ）
+    rect(hd[0] - 4.6, hd[1] + 2.5, 6, 0.5, C.navyD);
+    rect(hd[0] - 3.5, hd[1] - 4, 3, 0.8, C.navyL);                  // つや
+    rect(hd[0] + 1, hd[1] - 1, 4.6, 1.2, C.navyD);                   // つば
+    rect(hd[0] + 2.3, hd[1] + 0.6, 0.6, 1.2, C.K);                   // 目
+    rect(hd[0] + 3.4, hd[1] + 2.4, 1, 0.5, C.blush);
+    dot(hd[0] - 0.4, hd[1] + 1.4, C.skinD);                          // 耳
+    // 腕・バット・手ぶくろ。前の腕（左）は からだの向こう、後ろの腕（右）は手前
+    arm(Z.shF, Z.grip);
+    if (!batBehind) drawBat();
+    arm(Z.shR, Z.top);
+    glove(Z.grip); glove(Z.top);
+  }
+  // バットの芯（先から3割）の場所。ボールはここに当たる
+  function sweetSpot(x0, y, u) {
+    const Z = batterPose(x0, y, u === undefined ? SWING_CONTACT : u);
+    return mix(Z.knob, Z.tip, 0.72);
   }
 
-  // ピッチャー（守るチーム）。frame: set / lift / throw
-  function pitcher(frame) {
-    const cx = MOUND[0], fy = MOUND[1];
-    ellipse(cx, fy, 6, 1, C.shadow);
-    const leg = (x, y, h) => { orect(x, y, 2, h, C.gray); px(x, y + h - 2, C.red); px(x + 1, y + h - 2, C.red); rect(x, y + h - 1, 2, 1, C.K); };
-    if (frame === 'lift') {
-      leg(cx + 1, fy - 6, 6);
-      orect(cx - 5, fy - 10, 4, 3, C.gray);               // あげた足
-      rect(cx - 5, fy - 8, 1, 1, C.red);
-    } else if (frame === 'throw') {
-      leg(cx - 5, fy - 4, 4);                             // ふみ出した足
-      leg(cx + 2, fy - 7, 6);
+  // ---------------------------------------------------------
+  //  ピッチャー（守るチーム・右投げ）。こちら（ホーム）を向いて投げる
+  //  p = 0 セット（三塁の方を向いて立つ）→ .3 足を上げる → .48 手を分ける → .62 ふみ出す
+  //      → .72 ボールをはなす（上から）→ 1 投げ終わり（前にかがみ、右足が上がる）
+  //  fa = 体の向き（0 横向き＝左を向く / 1 こちらを向く）
+  // ---------------------------------------------------------
+  const RELEASE_AT = 0.72;
+  const PITCHER_KEYS = [
+    [0.00, { hip: [0, -9.2], neck: [-0.3, -15.6], head: [-0.6, -18.5], fa: 0, gl: [-2.4, -13.4], th: [-1.6, -13.6], fL: [-1.2, 0.4], fR: [1.2, -0.3] }],
+    [0.30, { hip: [0.4, -9.6], neck: [0.6, -16.2], head: [0.4, -19.1], fa: 0, gl: [-1.6, -15], th: [-1, -15.2], fL: [-1.4, -5.4], fR: [1, -0.3] }],
+    [0.48, { hip: [-0.2, -9.1], neck: [0, -15.7], head: [-0.4, -18.5], fa: 0.05, gl: [-4.8, -14.2], th: [4.2, -11.8], fL: [-2.8, -2.4], fR: [1.2, -0.3] }],
+    [0.62, { hip: [-0.6, -7.8], neck: [-0.6, -14.4], head: [-0.8, -17.2], fa: 0.45, gl: [-3, -12.6], th: [2.8, -19.6], fL: [-2.2, 2.6], fR: [1.6, -0.2] }],
+    [0.72, { hip: [-0.8, -7.3], neck: [-1, -13], head: [-1.2, -15.8], fa: 1, gl: [1.8, -11.4], th: [-3.3, -16.4], fL: [-2.2, 2.6], fR: [1.8, -0.8] }],
+    [0.84, { hip: [-0.8, -7], neck: [-1.2, -11.6], head: [-1.4, -14.3], fa: 1, gl: [2, -10.2], th: [0.2, -8.4], fL: [-2.2, 2.6], fR: [2.4, -3.2] }],
+    [1.00, { hip: [-0.6, -6.9], neck: [-1.2, -10.8], head: [-1.4, -13.4], fa: 1, gl: [1.8, -9.6], th: [2.6, -5.4], fL: [-2.2, 2.6], fR: [2.8, -5.2] }],
+  ];
+  function pitcherPose(p) {
+    const P = tween(PITCHER_KEYS, p);
+    const o = (v) => [MOUND[0] + v[0], MOUND[1] + v[1]];
+    const A = clamp01(P.fa) * Math.PI / 2;
+    const sh = o(add(P.neck, [0, 1.1]));
+    // 左肩（グラブ）と右肩（投げる手）。横向きでは左肩が手前（下）、正面では右肩が左に来る
+    const shL = add(sh, [2.2 * Math.sin(A), 0.6 * Math.cos(A)]);
+    const shR = add(sh, [-2.2 * Math.sin(A), -0.6 * Math.cos(A)]);
+    const hip = o(P.hip);
+    const hipL = add(hip, [1.4 * Math.sin(A), 0.5 * Math.cos(A)]);
+    const hipR = add(hip, [-1.4 * Math.sin(A), -0.5 * Math.cos(A)]);
+    return { P, A, sh, shL, shR, hip, hipL, hipR, neck: o(P.neck), head: o(P.head), gl: o(P.gl), th: o(P.th), fL: o(P.fL), fR: o(P.fR) };
+  }
+  function pitcherHand(p) { return pitcherPose(p).th; }
+  function pitcher(p) {
+    if (typeof p === 'string') p = { set: 0, lift: 0.3, throw: 0.9 }[p] || 0;
+    const Z = pitcherPose(p), P = Z.P;
+    const face = [-Math.cos(Z.A), 0.35 * Math.sin(Z.A)];               // 向いている方
+    const toward = (base) => (a, b) => (a[0] - base[0]) * face[0] + (a[1] - base[1]) * face[1] > (b[0] - base[0]) * face[0] + (b[1] - base[1]) * face[1];
+    ellipse(MOUND[0] - 0.5, MOUND[1] + 0.8, 6.5, 1.4, C.shadow);
+    const leg = (hp, ft) => {
+      const kn = ik(hp, ft, 4.7, 4.7, toward(hp));
+      limb(kn, ft, 1.6, C.gray);
+      limb(hp, kn, 2, C.gray);
+      rect(ft[0] - 1, ft[1] - 1.3, 2, 0.6, C.red);                    // ストッキング
+      limb([ft[0] - 0.9, ft[1]], [ft[0] + 0.6, ft[1]], 1, C.shoe);
+    };
+    const arm = (s, hand, isGlove) => {
+      const el = ik(s, hand, 3.5, 3.3, isGlove ? (a, b) => a[1] > b[1] : (a, b) => Math.abs(a[0] - Z.sh[0]) > Math.abs(b[0] - Z.sh[0]));
+      limb(s, el, 1.5, C.red);
+      limb(el, hand, 1.3, C.red);
+      if (isGlove) { disc(hand[0], hand[1], 1.5, C.K); disc(hand[0], hand[1], 1.1, C.glove); dot(hand[0] - 0.5, hand[1] - 0.5, C.gloveL); }
+      else { disc(hand[0], hand[1], 0.9, C.K); disc(hand[0], hand[1], 0.5, C.skin); }
+    };
+    const body = () => {
+      const tw = 4 + 1.2 * Math.sin(Z.A);
+      capsule(Z.sh, Z.hip, tw + 2 * q, C.K);
+      capsule(Z.sh, Z.hip, tw, C.gray);
+      capsule(add(Z.sh, [tw / 2 - 0.6, 0.4]), add(Z.hip, [tw / 2 - 0.6, -0.4]), 0.8, C.grayD);
+      capsule(add(Z.hip, [-tw / 2 + 0.6, 0]), add(Z.hip, [tw / 2 - 0.6, 0]), 0.8, C.redD); // ベルト
+      if (Z.A > 0.7) { rect(Z.sh[0] - 1, Z.sh[1] + 1, 2, 0.5, C.red); }                    // 胸の文字
+    };
+    const head = () => {
+      const h = Z.head;
+      disc(h[0], h[1], 2.8, C.K);
+      disc(h[0], h[1], 2.3, C.skin);
+      disc(h[0], h[1] - 0.6, 2.4, C.red, h[1] - 0.9);                  // 帽子
+      dot(h[0] - 0.5, h[1] - 2.4, C.redL);
+      const s = Math.sin(Z.A);
+      // つば：横向きでは左へ出る、正面では下の帯になる
+      rect(h[0] - 2.6 - 1.4 * (1 - s), h[1] - 1, 2.6 + 1.4 * (1 - s) + 2.6 * s, 0.8, C.redD);
+      if (s > 0.6) { dot(h[0] - 1, h[1] + 0.3, C.K); dot(h[0] + 0.5, h[1] + 0.3, C.K); }
+      else dot(h[0] - 1.5, h[1] + 0.3, C.K);
+    };
+    if (Z.A < Math.PI / 4) {
+      arm(Z.shR, Z.th, false);
+      leg(Z.hipR, Z.fR);
+      body();
+      leg(Z.hipL, Z.fL);
+      head();
+      arm(Z.shL, Z.gl, true);
     } else {
-      leg(cx - 3, fy - 6, 6);
-      leg(cx + 1, fy - 6, 6);
+      leg(Z.hipR, Z.fR);
+      leg(Z.hipL, Z.fL);
+      body();
+      head();
+      arm(Z.shL, Z.gl, true);
+      arm(Z.shR, Z.th, false);
     }
-    // 投げ終わりは、ふみ出した足の方へ体をうつして前にかたむく
-    const dy = frame === 'throw' ? 1 : 0, bx = frame === 'throw' ? -1 : 0;
-    const cx0 = cx;
-    {
-      const cx = cx0 + bx;
-      orect(cx - 3, fy - 12 + dy, 7, 7, C.gray);
-      rect(cx - 3, fy - 12 + dy, 1, 7, C.grayD);
-      rect(cx - 3, fy - 6 + dy, 7, 1, C.redD);
-      rect(cx - 3, fy - 12 + dy, 2, 2, C.red); rect(cx + 2, fy - 12 + dy, 2, 2, C.red);
-      px(cx, fy - 10 + dy, C.red);
-    }
-    if (frame === 'set') {
-      rect(cx - 2, fy - 10, 4, 3, C.K); rect(cx - 1, fy - 10, 3, 2, C.glove);
-    } else if (frame === 'lift') {
-      line(cx - 3, fy - 11, cx - 4, fy - 16, C.red);
-      line(cx + 3, fy - 11, cx + 4, fy - 16, C.red);
-      rect(cx - 2, fy - 20, 5, 3, C.K); rect(cx - 1, fy - 19, 3, 2, C.glove);
-    } else {
-      line(cx + 3, fy - 10 + dy, cx + 6, fy - 7, C.K, 3);
-      line(cx + 3, fy - 10 + dy, cx + 6, fy - 7, C.red, 1);
-      rect(cx + 6, fy - 8, 2, 2, C.skin);
-      rect(cx - 7, fy - 10 + dy, 4, 4, C.K); rect(cx - 6, fy - 9 + dy, 2, 2, C.glove);
-    }
-    const hy = fy - 15 + dy, hx = cx + bx;
-    disc(hx, hy, 3, C.K);
-    disc(hx, hy, 2, C.skin);
-    rect(hx - 3, hy - 3, 7, 2, C.red);
-    px(hx - 1, hy - 3, C.redL);
-    rect(hx - 2, hy - 1, 5, 1, C.redD);
-    px(hx - 1, hy, C.K); px(hx + 1, hy, C.K);
+    // ボールを持っている間は、手（またはグラブ）の中に見える
+    if (p > 0.4 && p < RELEASE_AT) ball(Z.th[0], Z.th[1], 0.6);
   }
 
-  // キャッチャー（後ろすがた）
+  // ---------------------------------------------------------
+  //  投げたボールの通り道（t=0 手をはなす → t=1 着く）
+  //  近づくほど 速く・大きく見える（遠くは ゆっくり小さく）。曲がりと落ちは 奥ほど小さく見える
+  //  pitch = { arc: 山なりの高さ, dx: 横の曲がり（+ が右）, drop: すとんと落ちる量 }、to = 着く場所
+  // ---------------------------------------------------------
+  const DEPTH = 3;                                // マウンドはホームの 3倍 遠い
+  function nearness(t) { const z = DEPTH - (DEPTH - 1) * t; return (1 / z - 1 / DEPTH) / (1 - 1 / DEPTH); }
+  function pitchPos(t, pitch, to) {
+    pitch = pitch || {};
+    to = to || MITT;
+    const from = pitcherHand(RELEASE_AT);
+    const s = nearness(clamp01(t)), z = DEPTH - (DEPTH - 1) * clamp01(t), k = 1 / z;
+    // まっすぐの線からのずれ：横に曲がる球は はじめ逆にふくらみ、最後に曲がる。重力で山なり
+    const bulge = t * (1 - t);
+    const offX = -(pitch.dx || 0) * bulge * k * 2.2;
+    const rise = ((pitch.arc || 0) * bulge + (pitch.drop || 0) * (t - Math.pow(t, 4))) * k * 2;
+    const x = lerp(from[0], to[0], s) + offX, y = lerp(from[1], to[1], s) - rise;
+    return { x: x, y: y, r: lerp(0.55, 2.4, s), sx: lerp(MOUND[0] - 2, to[0] - 1, s), sy: lerp(MOUND[1] + 1, 193, s) };
+  }
+  // 打ったボール（t=0 当たった所 → t=1）。遠ざかるほど ゆっくり小さく見える
+  function hitPos(t, from, to) {
+    const z = 1 + 5 * clamp01(t), s = (1 - 1 / z) / (1 - 1 / 6);
+    return { x: lerp(from[0], to[0], s), y: lerp(from[1], to[1], s), r: lerp(2.4, 0.6, s) };
+  }
+
+  // キャッチャー（後ろすがた）。ミット（左手）は ボールの来る所へ出す。右手は背中の後ろにかくす
   function catcher(mitt) {
-    const cx = 128, y = 220;
-    // しゃがんだ両ひざとすね当て（ひざの上の角を落として丸く見せる）
-    orect(cx - 16, y - 8, 9, 7, C.gray);
-    orect(cx + 7, y - 8, 9, 7, C.gray);
-    rect(cx - 16, y - 8, 2, 7, C.grayD);
-    px(cx - 17, y - 9, C.shadow); px(cx - 16, y - 8, C.K); px(cx + 15, y - 8, C.K); px(cx + 16, y - 9, C.shadow);
-    rect(cx - 17, y - 1, 9, 2, C.redD);
-    rect(cx + 8, y - 1, 9, 2, C.redD);
-    // 背中
-    orect(cx - 11, y - 21, 22, 13, C.gray);
-    rect(cx - 11, y - 21, 3, 13, C.grayD);
-    line(cx - 10, y - 20, cx + 10, y - 9, C.K, 2);        // プロテクターのベルト
-    line(cx + 10, y - 20, cx - 10, y - 9, C.K, 2);
-    text3('2', cx - 1, y - 18, C.red);                    // 背番号
-    rect(cx - 11, y - 10, 22, 2, C.redD);
-    // ミットを出したうで（ひじを1か所はさむ）
-    const ex = cx + 13, ey = Math.round((y - 19 + mitt[1]) / 2) + 2;
-    line(cx + 9, y - 19, ex, ey, C.K, 4); line(ex, ey, mitt[0], mitt[1] + 3, C.K, 4);
-    line(cx + 9, y - 19, ex, ey, C.red, 2); line(ex, ey, mitt[0], mitt[1] + 3, C.red, 2);
-    disc(mitt[0], mitt[1], 5, C.K);
-    disc(mitt[0], mitt[1], 4, C.glove);
-    disc(mitt[0], mitt[1], 2, C.gloveD);
-    px(mitt[0] - 2, mitt[1] - 3, C.gloveL);
-    // ヘルメット（後ろ）
-    disc(cx, y - 26, 7, C.K);
-    disc(cx, y - 26, 6, C.red);
-    rect(cx - 4, y - 30, 3, 1, C.redL); px(cx - 5, y - 29, C.redL);
-    rect(cx - 6, y - 23, 12, 2, C.redD);
-    rect(cx - 3, y - 21, 6, 1, C.K);                      // マスクのひも
+    const cx = 128, y = 222;
+    mitt = mitt || MITT;
+    // ミットを出した左腕：前（ピッチャーの方）へのばすので、背中と頭のかげに かくれる
+    const shL = [cx - 8, y - 18.5], hand = [mitt[0] - 0.5, mitt[1] + 3];
+    const el = ik(shL, hand, 8, 8, (a, b) => a[0] < b[0]);
+    limb(shL, el, 3, C.gray);
+    limb(el, hand, 2.6, C.gray);
+    disc(mitt[0], mitt[1], 4.6, C.K);
+    disc(mitt[0], mitt[1], 4.1, C.glove);
+    disc(mitt[0] + 0.4, mitt[1] + 0.5, 2.2, C.gloveD);
+    disc(mitt[0] - 1.6, mitt[1] - 1.8, 0.9, C.gloveL);
+    // しゃがんだ足：かかと（くつ）・ふくらはぎ・おしり
+    [-1, 1].forEach((sg) => {
+      ellipse(cx + sg * 9.5, y - 3.5, 4.6, 4, C.K);
+      ellipse(cx + sg * 9.5, y - 3.5, 4.1, 3.5, C.gray);
+      rect(cx + sg * 9.5 - 3.5, y - 5.5, 7, 0.8, C.redD);               // レガースのベルト
+      rect(cx + sg * 9.5 - 3.5, y - 2.5, 7, 0.8, C.redD);
+      ellipse(cx + sg * 9.5, y + 0.5, 3.6, 1.4, C.shoe);
+    });
+    ellipse(cx, y - 7.5, 11.5, 4.6, C.K);
+    ellipse(cx, y - 7.5, 11, 4.1, C.gray);
+    ellipse(cx - 4, y - 8.5, 4.5, 1.6, C.grayL);
+    rect(cx - 0.25, y - 11, 0.5, 6.5, C.grayD);
+    // 背中（肩はばが広く、腰へ少し細くなる）
+    const back = [[cx - 10.5, y - 19], [cx + 10.5, y - 19], [cx + 9, y - 9], [cx - 9, y - 9]];
+    poly([[cx - 11, y - 19.5], [cx + 11, y - 19.5], [cx + 9.5, y - 8.5], [cx - 9.5, y - 8.5]], C.K);
+    poly(back, C.gray);
+    poly([[cx - 10.5, y - 19], [cx - 7.5, y - 19], [cx - 6.8, y - 9], [cx - 9, y - 9]], C.grayD);
+    disc(cx - 10, y - 18, 2.4, C.K); disc(cx - 10, y - 18, 1.9, C.gray);   // 肩
+    disc(cx + 10, y - 18, 2.4, C.K); disc(cx + 10, y - 18, 1.9, C.gray);
+    // プロテクターのベルト（背中でばってん）
+    line(cx - 8.5, y - 18, cx + 7.5, y - 10, C.K, 1); line(cx + 8.5, y - 18, cx - 7.5, y - 10, C.K, 1);
+    text3('2', cx - 1.5, y - 17.5, C.red, 1);                         // 背番号
+    rect(cx - 9, y - 10, 18, 1.2, C.redD);                            // ベルト
+    // 右手：背中の後ろ（ファウルボールから守る）
+    limb([cx + 10, y - 17], [cx + 7.5, y - 11.5], 2.4, C.gray);
+    disc(cx + 6.8, y - 11, 1.3, C.K); disc(cx + 6.8, y - 11, 0.9, C.skin);
+    // 首とヘルメット（後ろ）・マスクのひも
+    rect(cx - 2.5, y - 21, 5, 2.5, C.skinD);
+    disc(cx, y - 25, 5.4, C.K);
+    disc(cx, y - 25, 4.9, C.red);
+    disc(cx - 1.6, y - 26.8, 1.6, C.redL, y - 27);
+    rect(cx - 4.9, y - 23, 9.8, 1.2, C.redD);
+    rect(cx - 3.5, y - 21.4, 7, 0.8, C.K);
   }
 
-  // ボール。r はふちを含めない半径
+  // ボール。r はふちを含めない半径（小さい時は点）
   function ball(x, y, r) {
-    if (r < 1.2) { rect(x - 1, y - 1, 2, 2, C.whiteL); return; }
-    disc(x, y, r + 1, C.K);
+    if (r < 0.9) { rect(x - 0.5, y - 0.5, 1, 1, C.whiteL); return; }
+    disc(x, y, r + 0.5, C.K);
     disc(x, y, r, C.white);
-    if (r >= 2) { px(x - 1, y - 1, C.whiteL); px(x + 1, y, C.red); px(x, y + 1, C.red); }
+    dot(x - r * 0.4, y - r * 0.4, C.whiteL);
+    if (r >= 1.6) { dot(x + r * 0.35, y - 0.25, C.red); dot(x + r * 0.15, y + r * 0.45, C.red); }
   }
 
   // =========================================================
@@ -1598,7 +1788,7 @@ window.WORDS = {
   function fan(R, c, from, to) {
     from = from === undefined ? -45 : from; to = to === undefined ? 45 : to;
     const pts = [HOME.slice()];
-    for (let a = from; a <= to; a += 3) pts.push(P(a, R));
+    for (let a = from; a <= to; a += 2) pts.push(P(a, R));
     pts.push(P(to, R));
     poly(pts, c);
   }
@@ -1610,7 +1800,7 @@ window.WORDS = {
     for (let y = 1; y < H; y += 3) for (let x = (y % 2); x < W; x += 3) {
       if (x % 32 < 3 || r() < 0.4) continue;            // 通路と空席
       rect(x, y, 2, 2, CROWD[Math.floor(r() * CROWD.length)]);
-      if (r() < 0.25) px(x, y, C.skinD);
+      if (r() < 0.25) rect(x + 0.5, y + 0.5, 1, 1, C.skinD);
     }
     G.fillStyle = 'rgba(21, 27, 51, .35)';             // 全体を少し沈める
     G.fillRect(0, 0, W, H);
@@ -1619,7 +1809,7 @@ window.WORDS = {
     rect(56, 196, 144, 28, C.grassDD);
     // フェンス（厚み・つなぎ目・内側の影）
     fan(FENCE + 6, C.fence);
-    for (let a = -45; a <= 45; a += 6) { const p = P(a, FENCE + 4), q = P(a, FENCE + 6); line(p[0], p[1], q[0], q[1], C.fenceD); }
+    for (let a = -45; a <= 45; a += 6) { const p = P(a, FENCE + 4), q2 = P(a, FENCE + 6); line(p[0], p[1], q2[0], q2[1], C.fenceD, 0.5); }
     fan(FENCE + 2, C.fenceTop);
     fan(FENCE + 1, C.fenceD);
     fan(FENCE, C.dirtD);
@@ -1632,15 +1822,15 @@ window.WORDS = {
     disc(HOME[0], HOME[1], 8, C.dirt);
     disc(128, 177, 5, C.mound);
     disc(128, 176, 2, C.dirtL);
-    rect(127, 177, 3, 1, C.white);
+    rect(127, 177, 3, 0.5, C.white);
     const rd = rng(13);
     texture(C.dirt, () => { const v = rd(); return v < 0.03 ? C.dirtD : v < 0.045 ? C.dirtL : null; });
     // 線とベース
     const L = P(-45, FENCE), R2 = P(45, FENCE);
-    line(HOME[0], HOME[1], L[0], L[1], C.white);
-    line(HOME[0], HOME[1], R2[0], R2[1], C.white);
-    BASES.slice(1, 4).forEach((b) => { rect(b[0] - 2, b[1] - 2, 5, 5, C.K); rect(b[0] - 1, b[1] - 1, 3, 3, C.white); });
-    rect(HOME[0] - 1, HOME[1] - 1, 3, 3, C.white);
+    line(HOME[0], HOME[1], L[0], L[1], C.white, 0.5);
+    line(HOME[0], HOME[1], R2[0], R2[1], C.white, 0.5);
+    BASES.slice(1, 4).forEach((b) => { rect(b[0] - 2, b[1] - 2, 4.5, 4.5, C.K); rect(b[0] - 1.5, b[1] - 1.5, 3.5, 3.5, C.white); });
+    poly([[HOME[0] - 1.5, HOME[1] - 1.5], [HOME[0] + 1.5, HOME[1] - 1.5], [HOME[0] + 1.5, HOME[1] + 0.5], [HOME[0], HOME[1] + 2], [HOME[0] - 1.5, HOME[1] + 0.5]], C.white);
     // 距離の表示（センター120・両そで90）
     const c = P(0, FENCE + 3);
     text3('120', c[0] - 5, c[1] - 2, C.white);
@@ -1656,23 +1846,35 @@ window.WORDS = {
     const bodyD = team === 'bat' ? C.whiteD : C.grayD;
     const cap = team === 'bat' ? C.navy : C.red;
     const capL = team === 'bat' ? C.navyL : C.redL;
-    ellipse(x + 1, y + 4, 3, 1, C.shadow);
-    if (step === undefined) { rect(x - 1, y + 2, 1, 2, C.K); rect(x + 1, y + 2, 1, 2, C.K); }
-    else if (step === 0) { rect(x - 2, y + 2, 1, 2, C.K); rect(x + 1, y + 2, 1, 1, C.K); }
-    else { rect(x - 1, y + 2, 1, 1, C.K); rect(x + 2, y + 2, 1, 2, C.K); }
-    rect(x - 2, y - 2, 5, 5, C.K);
-    rect(x - 1, y - 1, 3, 3, body);
-    px(x - 1, y - 1, bodyD); px(x - 1, y, bodyD);
-    rect(x - 1, y + 1, 3, 1, cap);
-    rect(x - 2, y - 6, 5, 5, C.K);
+    const sock = team === 'bat' ? C.navy : C.red;
+    ellipse(x + 1, y + 4.5, 3, 1, C.shadow);
+    // 足（走っている時は 前と後ろに開く）
+    const legs = step === undefined ? [[-1, 0], [1, 0]] : step === 0 ? [[-1.5, 0.8], [1, -0.6]] : [[-1, -0.6], [1.5, 0.8]];
+    legs.forEach(([lx, ly]) => { rect(x + lx - 0.5, y + 2, 1.5, 1.6 + ly, sock); rect(x + lx - 0.5, y + 3.4 + ly, 1.5, 0.6, C.K); });
+    // 腕（走る時はふる）。からだの両わきに、ふちどりつきで
+    const sw = step === undefined ? 0 : step ? 0.8 : -0.8;
+    rect(x - 3.5, y - 2 + sw, 2, 3, C.K); rect(x + 2, y - 2 - sw, 2, 3, C.K);
+    rect(x - 3, y - 1.5 + sw, 1, 2, body); rect(x + 2.5, y - 1.5 - sw, 1, 2, body);
+    // からだ
+    rect(x - 2.5, y - 2.5, 5, 5, C.K);
+    rect(x - 2, y - 2, 4, 4, body);
+    rect(x - 2, y - 2, 1, 4, bodyD);
+    rect(x - 2, y + 1, 4, 0.5, cap);                                   // ベルト
+    // 頭
+    disc(x, y - 4.2, 2.3, C.K);
     if (back) {
-      rect(x - 1, y - 5, 3, 2, cap); px(x, y - 5, capL);
-      rect(x - 1, y - 3, 3, 1, C.hair);
+      disc(x, y - 4.2, 1.8, cap); dot(x - 0.5, y - 5.2, capL);
+      rect(x - 1, y - 3, 2, 0.5, C.hair);
     } else {
-      rect(x - 1, y - 5, 3, 3, C.skin);
-      rect(x - 1, y - 5, 3, 1, cap); px(x, y - 5, capL);
+      disc(x, y - 4.2, 1.8, C.skin);
+      disc(x, y - 4.7, 1.9, cap, y - 4.7); dot(x - 0.5, y - 5.7, capL);
+      rect(x - 1.5, y - 4.7, 3, 0.5, team === 'bat' ? C.navyD : C.redD); // つば
+      dot(x - 1, y - 3.7, C.K); dot(x + 0.5, y - 3.7, C.K);
     }
-    if (glove) { rect(x + (glove > 0 ? 3 : -4), y - 2, 2, 2, C.gloveD); px(x + (glove > 0 ? 3 : -3), y - 2, C.glove); }
+    if (glove) {
+      const gx = x + (glove > 0 ? 3.5 : -5);
+      disc(gx + 0.5, y - 1, 1.2, C.K); disc(gx + 0.5, y - 1, 0.8, C.glove);
+    }
   }
 
   // ---- 花火・火花 ----
@@ -1685,13 +1887,14 @@ window.WORDS = {
     });
   }
 
-  function lerp(a, b, t) { return a + (b - a) * t; }
-
   root.Art = {
-    W: W, H: H, C: C, use: use, rect: rect, ellipse: ellipse, disc: disc, line: line,
+    W: W, H: H, SCALE: SCALE, C: C, use: use, layer: layer, rect: rect, ellipse: ellipse, disc: disc, line: line,
     battingBg: battingBg, fieldBg: fieldBg, batter: batter, pitcher: pitcher, catcher: catcher, ball: ball, mini: mini, particles: particles,
-    PLATE: PLATE, MITT: MITT, BAT_POS: BAT_POS, MOUND: MOUND, RELEASE: RELEASE, HOME: HOME, P: P, FENCE: FENCE, BASES: BASES, FIELDERS: FIELDERS,
+    pitchPos: pitchPos, hitPos: hitPos, pitcherHand: pitcherHand, sweetSpot: sweetSpot, nearness: nearness,
+    SWING_CONTACT: SWING_CONTACT, RELEASE_AT: RELEASE_AT,
+    PLATE: PLATE, MITT: MITT, BAT_POS: BAT_POS, MOUND: MOUND, RELEASE: null, HOME: HOME, P: P, FENCE: FENCE, BASES: BASES, FIELDERS: FIELDERS,
   };
+  root.Art.RELEASE = pitcherHand(RELEASE_AT);
 })(typeof window !== 'undefined' ? window : globalThis);
 
 </script>
@@ -1800,12 +2003,26 @@ window.WORDS = {
       const sources = new Set();
       const clamp = v => Math.max(0, Math.min(1, v));
       const mix = (a, b, v) => a + (b - a) * v;
-      const backgrounds = ['battingBg', 'fieldBg'].map(name => {
-        const c = document.createElement('canvas');
-        c.width = 256; c.height = 224;
-        A.use(c.getContext('2d')); A[name](); return c;
-      });
+      const backgrounds = ['battingBg', 'fieldBg'].map(name => A.layer(A[name]));
       A.use(ctx);
+      // 打つところの動き（ゲームと同じ人物・同じ順番。ここは見せ場なので 少しゆっくり）
+      const sweet = A.sweetSpot(A.BAT_POS[0], A.BAT_POS[1]);
+      const STRAIGHT = { arc: 3, dx: 0, drop: 0 };
+      const span = (a, b) => clamp((time - a) / (b - a));
+      function pitcherU() {
+        if (time < 2.35) return 0;
+        if (time < 3.25) {
+          const s = span(2.35, 3.25), map = [[0, 0], [0.5, 0.3], [0.72, 0.48], [0.9, 0.62], [1, A.RELEASE_AT]];
+          for (let i = 1; i < map.length; i++) if (s <= map[i][0]) return mix(map[i - 1][1], map[i][1], (s - map[i - 1][0]) / (map[i][0] - map[i - 1][0]));
+        }
+        return A.RELEASE_AT + (1 - A.RELEASE_AT) * span(3.25, 3.65);
+      }
+      function batterU() {
+        if (time < hit - 0.15) return 0.25 * span(2.5, 2.9) + 0.2 * span(2.9, 3.4);
+        if (time < hit) { const s = span(hit - 0.15, hit); return 0.45 + (A.SWING_CONTACT - 0.45) * s * s; }
+        const s = span(hit, hit + 0.35);
+        return A.SWING_CONTACT + (1 - A.SWING_CONTACT) * (1 - (1 - s) * (1 - s));
+      }
 
       // Sound's synthesis functions are reused with a private destination and
       // tracked sources. The shared Sound object/context is never modified.
@@ -1902,19 +2119,20 @@ window.WORDS = {
         A.particles(points);
       }
       function batting() {
-        ctx.drawImage(backgrounds[0], 0, 0);
-        A.pitcher(time < 2.35 ? 'set' : time < 3.25 ? 'lift' : 'throw');
-        A.batter(...A.BAT_POS, time < 3.98 ? 'stance' : time < 4.32 ? 'swing' : 'follow');
+        ctx.drawImage(backgrounds[0], 0, 0, 256, 224);
+        A.pitcher(pitcherU());
+        A.batter(...A.BAT_POS, batterU(), time < 2.5 ? time : 0);
         A.catcher(A.MITT);
         if (time >= 3.25 && time < hit) {
-          const p = clamp((time - 3.25) / (hit - 3.25));
-          A.ball(mix(A.RELEASE[0], 131, p), mix(A.RELEASE[1], 178, p * p), 1 + p * 2);
+          const b = A.pitchPos(span(3.25, hit), STRAIGHT, sweet);
+          A.ball(b.x, b.y, b.r);
         }
         if (time >= hit) {
-          const p = (time - hit) / .85;
-          A.line(131 - p * 19, 178 - p * 137, 131 - p * 27, 178 - p * 175, A.C.light, 2);
-          A.ball(131 - p * 27, 178 - p * 175, 3 - p);
-          burst(131, 178, time - hit, A.C.fenceTop);
+          // センターの方へ高く上がって、遠ざかりながら小さくなる
+          const p = span(hit, hit + .85), b = A.hitPos(p, sweet, [124, 4]), tail = A.hitPos(Math.max(0, p - .035), sweet, [124, 4]);
+          A.line(tail.x, tail.y, b.x, b.y, A.C.light, 1);
+          A.ball(b.x, b.y, b.r);
+          burst(sweet[0], sweet[1], time - hit, A.C.fenceTop);
         }
         if (time < 2) {
           A.rect(0, 0, 256, 224, 'rgba(3,7,22,' + (.88 * (1 - clamp((time - .3) / 1.7))) + ')');
@@ -1930,7 +2148,7 @@ window.WORDS = {
         }
       }
       function field() {
-        ctx.drawImage(backgrounds[1], 0, 0);
+        ctx.drawImage(backgrounds[1], 0, 0, 256, 224);
         const p = clamp((time - 5) / 2.3), target = A.P(15, A.FENCE - 7);
         Object.entries(A.FIELDERS).forEach(([name, pos]) => {
           const chasing = ['LF', 'CF', 'RF'].includes(name);
@@ -1946,7 +2164,7 @@ window.WORDS = {
         if (time >= 6.65) text('やった！ ホームラン！', 115, 13);
       }
       function ending() {
-        ctx.drawImage(backgrounds[1], 0, 0);
+        ctx.drawImage(backgrounds[1], 0, 0, 256, 224);
         A.rect(0, 0, 256, 224, 'rgba(8,14,39,.8)');
         if (time < title) {
           const p = clamp((time - 7.5) / (title - 7.5));
@@ -2004,23 +2222,17 @@ window.WORDS = {
 
   const A = Art, W = A.W, H = A.H, C = A.C;
   const cv = document.getElementById('cv');
+  cv.width = W * A.SCALE; cv.height = H * A.SCALE; // 座標は 256×224 のまま、細かさは 2倍
   const main = cv.getContext('2d');
   A.use(main);
 
-  function layer(draw) {
-    const c = document.createElement('canvas');
-    c.width = W; c.height = H;
-    A.use(c.getContext('2d'));
-    draw();
-    A.use(main);
-    return c;
-  }
-  const BG_BAT = layer(A.battingBg);
-  const BG_FIELD = layer(A.fieldBg);
+  const BG_BAT = A.layer(A.battingBg);
+  const BG_FIELD = A.layer(A.fieldBg);
 
   const lerp = (a, b, t) => a + (b - a) * t;
   const clamp01 = (t) => Math.max(0, Math.min(1, t));
   const easeOut = (t) => 1 - Math.pow(1 - t, 2);
+  const mix2 = (a, b, t) => [lerp(a[0], b[0], t), lerp(a[1], b[1], t)];
   const $ = (id) => document.getElementById(id);
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
@@ -2178,6 +2390,7 @@ window.WORDS = {
   let pt = 0;                 // いまの場面に入ってからの秒
   let word = null, typer = null, limit = 1, pitchTime = 0, pitch = null;
   let result = null, reason = '', applied = null, flight = null, contact = null, missesNow = 0;
+  let flightTime = 0.6, pitchTo = null; // 投げた球が着くまでの時間と、着く場所
   let rush = null;            // れんぞくの打席 { time, T, keys, words, misses, lastTick }
   let cpuRuns = 0, nameBuf = '', lastRank = null, saveFailed = false;
   let gameNo = 0;             // ゲームごとの番号（前のゲームの花火が次のゲームに出ないように）
@@ -2185,12 +2398,14 @@ window.WORDS = {
   let parts = [];             // 花火・火花
   const stats = { keys: 0, misses: 0, typeTime: 0, missKeys: {}, pa: 0 };
 
+  // 右投げのピッチャー。カーブは右打者から にげる（右へ）、シュートは 食いこむ（左へ）
+  // arc = 山なり、dx = 横の曲がり、drop = 打者の手前で すとんと落ちる量、kmh = 球の速さ（遅い球は 何km か下げる）
   const PITCHES = [
-    { id: 'straight', name: 'ストレート', w: 4, arc: 6, dx: 0 },
-    { id: 'curve', name: 'カーブ', w: 2, arc: 8, dx: -12 },
-    { id: 'shoot', name: 'シュート', w: 2, arc: 6, dx: 10 },
-    { id: 'fork', name: 'フォーク', w: 1, arc: 13, dx: 0 },
-    { id: 'slow', name: 'スローボール', w: 1, arc: 18, dx: 0 },
+    { id: 'straight', name: 'ストレート', w: 4, arc: 3, dx: 0, drop: 0, kmh: 0 },
+    { id: 'curve', name: 'カーブ', w: 2, arc: 9, dx: 8, drop: 0, kmh: -25 },
+    { id: 'shoot', name: 'シュート', w: 2, arc: 3, dx: -7, drop: 0, kmh: -5 },
+    { id: 'fork', name: 'フォーク', w: 1, arc: 3, dx: 0, drop: 9, kmh: -12 },
+    { id: 'slow', name: 'スローボール', w: 1, arc: 16, dx: 0, drop: 0, kmh: -45 },
   ];
   function pickPitch() {
     let r = Math.random() * PITCHES.reduce((s, p) => s + p.w, 0);
@@ -2456,8 +2671,12 @@ window.WORDS = {
   // 打ち終わった（または時間切れの）あとに、ふつうの速さで投げる
   function deliver() {
     setPhase('delivery');
-    Sound.play('pitch');
-    setPitchLabel('<b>' + esc(pitch.name) + '</b> ' + Math.round(Math.max(70, Math.min(150, 160 - limit * 6))) + 'km');
+    const kmh = Math.round(Math.max(60, Math.min(150, 160 - limit * 6 + (pitch.kmh || 0))));
+    // ボールが着くまでの時間＝本当の速さで 約17m（ピッチャーの手からホームまで）を飛ぶ時間
+    flightTime = Math.max(0.42, Math.min(1.0, 16.9 / (kmh / 3.6)));
+    // ストライク（見のがし）は キャッチャーのミットへ、打つ時は バットの芯へ
+    pitchTo = result === 'strike' ? [A.MITT[0] + pitch.dx * 0.5, A.MITT[1] + pitch.drop * 0.3] : A.sweetSpot(A.BAT_POS[0], A.BAT_POS[1]);
+    setPitchLabel('<b>' + esc(pitch.name) + '</b> ' + kmh + 'km');
   }
 
   // elapsed = 打ち終わった瞬間の時間（キー入力の時に測ったもの）
@@ -2509,15 +2728,8 @@ window.WORDS = {
     deliver();
   }
 
-  // 投げたボールの位置（t=0 ピッチャーの手 → t=1 ミット）。球の種類で曲がり方が変わる
-  function ballInPitch(t) {
-    const p = pitch || PITCHES[0];
-    const bend = Math.sin(Math.PI * t);
-    let x = lerp(A.RELEASE[0], A.MITT[0], t) + p.dx * bend * (p.id === 'curve' || p.id === 'shoot' ? t : 1);
-    let y = lerp(A.RELEASE[1], A.MITT[1], t) - bend * p.arc;
-    if (p.id === 'fork' && t > 0.7) y += (t - 0.7) * 14;
-    return { x: x, y: y, r: lerp(0.6, 2.6, t * t), sx: lerp(A.RELEASE[0] - 1, A.MITT[0] - 1, t), sy: lerp(A.MOUND[1] + 1, 193, t) };
-  }
+  // 投げたボールの位置（t=0 ピッチャーの手 → t=1 着く）。近づくほど速く大きく見え、球の種類で曲がる
+  function ballInPitch(t) { return A.pitchPos(t, pitch || PITCHES[0], pitchTo); }
 
   function makeFlight(res) {
     const rnd = (a, b) => a + Math.random() * (b - a);
@@ -2546,7 +2758,18 @@ window.WORDS = {
         if (dd < best) { best = dd; chaser = k; }
       });
     }
-    return { land: land, peak: peak, dur: dur, kind: kind, chaser: chaser, out: res === 'out', homerun: res === 'homerun' };
+    // 打った方向（0 = センター、- = レフト、+ = ライト）。打席の画面でも この方向へ飛ばす
+    deg = Math.atan2(land[0] - A.HOME[0], A.HOME[1] - land[1]) * 180 / Math.PI;
+    return { land: land, deg: deg, peak: peak, dur: dur, kind: kind, chaser: chaser, out: res === 'out', homerun: res === 'homerun' };
+  }
+  // 打席の画面で、当たったボールが向かう先（遠ざかって小さくなる）
+  function hitTarget(f) {
+    if (!f) return [contact.side < 0 ? 18 : 238, -24];          // ファウル：横の後ろへ
+    const x = 128 + f.deg * 2.4;
+    if (f.homerun) return [x, 6];
+    if (f.kind === 'grounder') return [128 + f.deg * 1.6, 118];
+    if (f.kind === 'liner') return [x, 92];
+    return [x, 70 - f.peak * 0.8];
   }
 
   // 結果をきまり（match.js）に反映する。画面のスコアは結果の文字を出す時に書き換える
@@ -2795,11 +3018,41 @@ window.WORDS = {
   // =========================================================
   // dt = 動きに使う時間（コマ落ちしても動きが飛ばないよう短く切る）
   // realDt = 本当に過ぎた時間（持ち時間・れんぞくの時間はこちらで測る）
-  // delivery = 投げる動き（足を上げる 0.15秒 ＋ ボールが来る 0.4秒）
-  const PHASE_LEN = { cpu: 2.2, change: 1.3, banner: 1.15, foulfly: 0.5, caught: 0.3, windup: 0.5, rushReady: 0.8, delivery: 0.55, swing: 0.4 };
-  const LIFT = 0.15;
-  // 投げてからのボールの進み具合（0〜1）。打つ時はミットの手前（0.8）で当たる
-  function deliveryT() { return clamp01((pt - LIFT) / (PHASE_LEN.delivery - LIFT)) * (result === 'strike' ? 1 : 0.8); }
+  // delivery = 投げる動き（足を上げて ふみ出し、腕をふる MOTION 秒）＋ ボールが着くまで（flightTime 秒・球の速さで決まる）
+  const PHASE_LEN = { cpu: 2.2, change: 1.3, banner: 1.15, foulfly: 0.5, caught: 0.3, windup: 0.5, rushReady: 0.8, swing: 0.4 };
+  const MOTION = 0.62, SWING_TIME = 0.15, FOLLOW = 0.35;
+  // 投げてからのボールの進み具合（0〜1。1 でミットか バットの芯に着く）
+  function deliveryT() { return clamp01((pt - MOTION) / flightTime); }
+  // ピッチャーの動き（0〜1）。足はゆっくり上げ、腕は すばやく ふる
+  function pitcherU() {
+    if (phase === 'delivery' && pt < MOTION) {
+      const s = pt / MOTION;
+      const map = [[0, 0], [0.5, 0.3], [0.72, 0.48], [0.9, 0.62], [1, A.RELEASE_AT]];
+      for (let i = 1; i < map.length; i++) if (s <= map[i][0]) return lerp(map[i - 1][1], map[i][1], (s - map[i - 1][0]) / (map[i][0] - map[i - 1][0]));
+    }
+    if (phase === 'delivery') return A.RELEASE_AT + (1 - A.RELEASE_AT) * clamp01((pt - MOTION) / FOLLOW);
+    if (['swing', 'foulfly', 'caught'].indexOf(phase) >= 0 || (phase === 'banner' && result === 'strike')) return 1;
+    return 0;
+  }
+  // バッターの動き（0〜1）。ピッチャーが足を上げたら 自分も足を上げ、投げたら ふみ出して待ち、
+  // ボールが来る 0.15秒前に振りはじめて、バットの芯（A.SWING_CONTACT）で ちょうど当たる
+  function batterU() {
+    if (phase === 'delivery') {
+      const hitAt = MOTION + flightTime;
+      let u = 0;
+      if (pt > 0.12) u = 0.25 * clamp01((pt - 0.12) / 0.33);
+      if (pt > 0.45) u = 0.25 + 0.2 * clamp01((pt - 0.45) / Math.max(0.05, Math.min(MOTION + 0.1, hitAt - SWING_TIME) - 0.45));
+      if (result !== 'strike' && pt > hitAt - SWING_TIME) {
+        const s = clamp01((pt - (hitAt - SWING_TIME)) / SWING_TIME);
+        u = 0.45 + (A.SWING_CONTACT - 0.45) * s * s;              // 加速しながら振る
+      }
+      return u;
+    }
+    if (phase === 'swing') return A.SWING_CONTACT + (1 - A.SWING_CONTACT) * (1 - Math.pow(1 - clamp01(pt / FOLLOW), 2));
+    if (phase === 'foulfly') return 1;
+    if (phase === 'caught' || (phase === 'banner' && result === 'strike')) return 0.45;
+    return 0;
+  }
   function update(dt, realDt) {
     pt += dt;
     updateParts(dt);
@@ -2832,21 +3085,25 @@ window.WORDS = {
         break;
       }
       case 'delivery':
-        if (pt >= PHASE_LEN.delivery) {
+        if (pt >= MOTION && !contact) { contact = { pitched: true }; Sound.play('pitch'); } // 手をはなした音
+        if (pt >= MOTION + flightTime) {
           if (result === 'strike') { Sound.play('catch'); setPhase('caught'); }
-          else { contact = ballInPitch(0.8); setPhase('swing'); }
+          else {
+            // バットの芯に当たった。打球の行き先は ここで決めて、打席の画面でも その方向へ飛ばす
+            const at = ballInPitch(1);
+            contact = { x: at.x, y: at.y, r: at.r, side: Math.random() < 0.5 ? -1 : 1 };
+            flight = result === 'foul' ? null : makeFlight(result);
+            Sound.play('hit');
+            burst(at.x, at.y, 10, ['#ffffff', '#fff4c2', '#f2c94c'], 40, 0.25);
+            setPhase('swing');
+          }
         }
         break;
       case 'swing':
-        if (pt >= 0.12 && !contact.hitPlayed) {
-          contact.hitPlayed = true;
-          Sound.play('hit');
-          burst(132, 176, 10, ['#ffffff', '#fff4c2', '#f2c94c'], 40, 0.25);
-        }
         if (pt >= PHASE_LEN.swing) {
           applyResult();
           if (result === 'foul') setPhase('foulfly');
-          else { flight = makeFlight(result); setPhase('flight'); }
+          else setPhase('flight');
         }
         break;
       case 'foulfly':
@@ -2874,49 +3131,38 @@ window.WORDS = {
   //  描く
   // =========================================================
   function drawBatting() {
-    main.drawImage(BG_BAT, 0, 0);
-    let pFrame = 'set';
-    if (phase === 'delivery') pFrame = pt < LIFT ? 'lift' : 'throw';
-    A.pitcher(pFrame);
-
-    let bFrame = 'stance';
-    if (phase === 'swing') bFrame = pt < 0.2 ? 'swing' : 'follow';
-    else if (phase === 'foulfly') bFrame = 'follow';
-    A.batter(A.BAT_POS[0], A.BAT_POS[1], bFrame);
+    main.drawImage(BG_BAT, 0, 0, W, H);
+    A.pitcher(pitcherU());
+    const stance = ['pitch', 'windup', 'rush', 'rushReady'].indexOf(phase) >= 0;
+    A.batter(A.BAT_POS[0], A.BAT_POS[1], batterU(), stance ? performance.now() / 1000 : 0);
 
     let ball = null;
-    if (phase === 'delivery' && pt >= LIFT) ball = ballInPitch(deliveryT());
+    if (phase === 'delivery' && pt >= MOTION) ball = ballInPitch(deliveryT());
     if (phase === 'caught' || (phase === 'banner' && result === 'strike')) ball = ballInPitch(1);
     if (phase === 'swing') {
-      const hitAt = { x: 132, y: 176, r: 2.4 };
-      if (pt < 0.12) {
-        const t = pt / 0.12;
-        ball = { x: lerp(contact.x, hitAt.x, t), y: lerp(contact.y, hitAt.y, t), r: lerp(contact.r, hitAt.r, t) };
-      } else {
-        const t = (pt - 0.12) / 0.28;
-        if (result === 'foul') ball = { x: lerp(132, 40, t), y: lerp(176, -20, t), r: 2 };
-        else ball = { x: lerp(132, 128, t), y: lerp(176, 40, easeOut(t)), r: lerp(2.4, 1, t) };
-      }
+      // 当たった所から、打球の方向へ（遠ざかって小さくなる）。ゴロは はずみながら
+      const t = clamp01(pt / PHASE_LEN.swing);
+      ball = A.hitPos(t, [contact.x, contact.y], hitTarget(flight));
+      if (flight && flight.kind === 'grounder') ball.y -= Math.abs(Math.sin(t * Math.PI * 2.5)) * 4 * (1 - t);
     }
-    if (phase === 'foulfly') ball = null;
     // 影と、ボールの通ったあと
     if (ball && phase === 'delivery') {
-      A.ellipse(ball.sx, ball.sy, 1 + ball.r * 0.6, 1, C.shadow);
-      const tNow = deliveryT();
-      [0.06, 0.12].forEach((d, i) => {
-        const g = ballInPitch(Math.max(0, tNow - d));
-        main.globalAlpha = 0.35 - i * 0.15;
-        A.ball(g.x, g.y, Math.max(0.6, g.r - 0.6));
-        main.globalAlpha = 1;
-      });
+      A.ellipse(ball.sx, ball.sy, 0.5 + ball.r * 0.6, 0.5 + ball.r * 0.2, C.shadow);
+      // 通ったあとの 光の筋（近づくほど長く見える）
+      const tNow = deliveryT(), tail = ballInPitch(Math.max(0, tNow - 0.08));
+      main.globalAlpha = 0.45;
+      A.line(tail.x, tail.y, ball.x, ball.y, C.light, ball.r > 1.5 ? 1 : 0.5);
+      main.globalAlpha = 1;
     }
-    A.catcher(A.MITT);
+    // 見のがしの球は、キャッチャーが 来る所へ ミットを動かして とる
+    const catchIt = result === 'strike' && pitchTo && (phase === 'delivery' || phase === 'caught' || phase === 'banner');
+    A.catcher(catchIt ? mix2(A.MITT, pitchTo, phase === 'delivery' ? clamp01(deliveryT() * 1.4) : 1) : A.MITT);
     if (ball) A.ball(ball.x, ball.y, ball.r);
     A.particles(parts);
   }
 
   function drawField() {
-    main.drawImage(BG_FIELD, 0, 0);
+    main.drawImage(BG_FIELD, 0, 0, W, H);
     // 結果の文字が出ている間は、打球が止まった形のまま
     const T = flight && phase === 'flight' ? clamp01(pt / flight.dur) : 1;
     const step = Math.floor(performance.now() / 130) % 2;
@@ -2950,7 +3196,9 @@ window.WORDS = {
     // ボール
     if (flight) {
       const t = T;
-      const gx = lerp(A.HOME[0], flight.land[0], easeOut(t)), gy = lerp(A.HOME[1], flight.land[1], easeOut(t));
+      // 横の進み：ゴロは 地面にこすれて だんだん遅く、フライは 空気でわずかに遅くなる
+      const s = flight.kind === 'grounder' ? easeOut(t) : (1 - Math.exp(-0.9 * t)) / (1 - Math.exp(-0.9));
+      const gx = lerp(A.HOME[0], flight.land[0], s), gy = lerp(A.HOME[1], flight.land[1], s);
       let h;
       if (flight.homerun) h = flight.peak * 4 * t * (1 - t) + 6 * t;
       else h = flight.kind === 'grounder' ? Math.abs(Math.sin(t * Math.PI * 3)) * 4 * (1 - t) : flight.peak * 4 * t * (1 - t);
