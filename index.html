@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="ja">
 <head>
-<!-- タイピングスタジアム / build 2026-10-31 16:32 -->
+<!-- タイピングスタジアム / build 2026-10-31 16:40 -->
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>タイピングスタジアム</title>
@@ -313,9 +313,17 @@ html, body {
   grid-template-columns: auto 500px;
   justify-content: center;
   align-content: center;
-  align-items: center;
+  align-items: start;
 }
-#app.side #panel { width: 500px; }
+/* 打つ欄の上下を、野球の画面の上下にそろえる（中身が入りきらない小さい画面では、のびてよい） */
+#app.side #panel {
+  width: 500px;
+  min-height: calc(224px * var(--s));
+  align-self: start;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
 #app.side #foot { grid-column: 1 / -1; }
 #panel.stack #kbwrap { justify-self: center; }
 #wordbox { min-width: 0; }
@@ -367,13 +375,13 @@ html, body {
 .hand .fg.on .nail { fill-opacity: .4; }
 #kb { display: flex; flex-direction: column; gap: 4px; }
 #kb .r { display: flex; gap: 4px; }
-#kb .r:nth-child(2) { padding-left: 9px; }
-#kb .r:nth-child(3) { padding-left: 18px; }
-#kb .r:nth-child(4) { padding-left: 27px; }
+#kb .r:nth-child(2) { padding-left: 11px; }
+#kb .r:nth-child(3) { padding-left: 22px; }
+#kb .r:nth-child(4) { padding-left: 33px; }
 #kb .k {
-  width: 24px; height: 24px;
+  width: 31px; height: 31px;
   display: grid; place-items: center;
-  font-size: 13px;
+  font-size: 16px;
   background: var(--panel-2);
   color: var(--ink-dim);
   border-radius: 4px;
@@ -2092,7 +2100,7 @@ window.WORDS = {
   function handSVG(side) {
     const fingers = side === 'L' ? [1, 2, 3, 4] : [5, 6, 7, 8].reverse();
     const flip = side === 'R' ? ' transform="translate(160 0) scale(-1 1)"' : '';
-    let s = '<svg viewBox="0 0 160 158" width="160" height="158" role="img"><g' + flip + '>';
+    let s = '<svg viewBox="0 0 160 158" width="134" height="132" role="img"><g' + flip + '>';
     // おやゆび：手のひらの内がわの下のほうから、ななめ上（約30度）へ。根元は手のひらの下にかくす
     s += '<rect class="thumb" x="108" y="62" width="21" height="58" rx="10.5" transform="rotate(32 118 118)"/>';
     HAND_FINGERS.forEach(([cx, top, base, w, deg], i) => {
@@ -2259,11 +2267,11 @@ window.WORDS = {
     };
     if (settings.rush) {
       ui.powerMeter.hidden = false;
-      const L = Rules.rushLines(settings.level), top = powerFull();
-      addTick(ui.powerbar, L.single / top * 100, '', 'ヒット');
-      addTick(ui.powerbar, L.double / top * 100, '', '2るい');
-      addTick(ui.powerbar, L.triple / top * 100, '', '3るい');
-      addTick(ui.powerbar, L.homerun / top * 100, 'hr', 'ホームラン');
+      const L = Rules.rushLines(settings.level);
+      addTick(ui.powerbar, powerPos(L.single) * 100, '', 'ヒット');
+      addTick(ui.powerbar, powerPos(L.double) * 100, '', '2るい');
+      addTick(ui.powerbar, powerPos(L.triple) * 100, '', '3るい');
+      addTick(ui.powerbar, powerPos(L.homerun) * 100, 'hr', 'ホームラン');
     } else {
       ui.powerMeter.hidden = true;
       addTick(ui.timebar, (1 - Rules.hrLine(settings.level)) * 100, 'hr', 'ホームラン');
@@ -2273,8 +2281,14 @@ window.WORDS = {
     setPower(0);
     updateMeterState();
   }
-  // パワーのメーターの右はし（ホームランの目盛りが右から少し内側に来るように）
-  function powerFull() { return Rules.rushLines(settings.level).homerun * 1.15; }
+  // パワーのメーターの目盛り方。判定の数字は変えず、見せ方だけ：
+  // 0〜ヒットを メーターの左 43%、ヒット〜ホームランを 43%〜79% に、同じ間隔で並べる
+  // （そのままだと、チャレンジでは目盛りが右に詰まって字が重なる。打ちはじめからメーターが のびて見えるよう2段に分ける）
+  function powerPos(p) {
+    const L = Rules.rushLines(settings.level), span = L.homerun - L.single;
+    if (p <= L.single) return Math.max(0, p / L.single) * 0.43;
+    return Math.min(1, 0.43 + (p - L.single) / (span * 1.6) * 0.57);
+  }
 
   // メーターの今のようす：ホームランの線が生きているか、いまのパワーなら何になるか
   // （判定と同じ関数で出すので、表示と結果が食い違わない）
@@ -2314,7 +2328,7 @@ window.WORDS = {
     ui.timefill.style.transform = 'scaleX(' + Math.max(0, left) + ')';
     ui.timefill.classList.toggle('low', left < 0.25);
   }
-  function setPower(p) { ui.powerfill.style.transform = 'scaleX(' + Math.min(1, p / powerFull()) + ')'; }
+  function setPower(p) { ui.powerfill.style.transform = 'scaleX(' + powerPos(p) + ')'; }
 
   function showBanner(text, cls, sub, sub2) {
     ui.banner.hidden = false;
@@ -2978,7 +2992,7 @@ window.WORDS = {
   const SIDE_PANEL = 500;
   function fit() {
     const iw = window.innerWidth, ih = window.innerHeight;
-    const PANEL_H = 560;                                 // 下にならべた時の打つ欄の高さ（目安。手の絵のぶん高い）
+    const PANEL_H = 580;                                 // 下にならべた時の打つ欄の高さ（目安。手の絵のぶん高い）
     let sV = 1;
     for (let s = 4; s >= 2; s--) if ((iw - 32) / W >= s && (ih - PANEL_H - 64) / H >= s) { sV = s; break; }
     const sS = Math.floor(Math.min((iw - 32 - SIDE_PANEL - 16) / W, (ih - 64) / H));
