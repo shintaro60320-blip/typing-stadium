@@ -1,0 +1,10 @@
+[{
+  "relation": ["delegate_permission/common.handle_all_urls"],
+  "target": {
+    "namespace": "android_app",
+    "package_name": "io.github.shintaro60320blip.typingstadium",
+    "sha256_cert_fingerprints": [
+      "87:91:FE:55:3B:E8:5C:03:AE:CD:7F:54:61:51:4D:35:3A:03:CB:B6:51:22:B2:EB:8C:59:2F:88:6A:53:C7:0D"
+    ]
+  }
+}]
