@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="ja">
 <head>
-<!-- タイピングスタジアム / build 2026-10-31 21:06 -->
+<!-- タイピングスタジアム / build 2026-10-31 22:36 -->
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>タイピングスタジアム</title>
@@ -1700,11 +1700,27 @@ window.WORDS = {
 (function (root) {
   'use strict';
 
+  // 効果音の全体の大きさ。パソコンの声（約 -15dB）に負けないよう、1つずつの音量に まとめて掛ける
+  const MASTER = 5;
+
   const Sound = {
-    ac: null, on: true,
+    ac: null, on: true, out: null,
     init() {
       if (this.ac) { if (this.ac.state === 'suspended') this.ac.resume(); return; }
       try { this.ac = new (root.AudioContext || root.webkitAudioContext)(); } catch (e) { this.ac = null; }
+      if (this.ac) this.out = this.makeOut(this.ac);
+    },
+    // 全部の音の出口：まとめて大きくし、重なって割れそうな時だけ角を丸める
+    // （コンプレッサーは短い音まで小さくしてしまうので使わない。0.7 までは そのまま通す）
+    makeOut(ac) {
+      const g = ac.createGain(), w = ac.createWaveShaper(), n = 1024, curve = new Float32Array(n);
+      for (let i = 0; i < n; i++) {
+        const x = (i / (n - 1) * 2 - 1) * 2, a = Math.abs(x); // 入口の値は 1/2 にしてあるので 2倍で戻す
+        curve[i] = Math.sign(x) * (a < 0.7 ? a : 0.7 + 0.3 * Math.tanh((a - 0.7) / 0.3));
+      }
+      g.gain.value = MASTER / 2; w.curve = curve;
+      g.connect(w); w.connect(ac.destination);
+      return g;
     },
     tone(freq, dur, opt) {
       if (!this.on || !this.ac) return;
@@ -1716,7 +1732,7 @@ window.WORDS = {
       if (opt.to) o.frequency.exponentialRampToValueAtTime(opt.to, t0 + dur);
       g.gain.setValueAtTime(opt.vol || 0.06, t0);
       g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
-      o.connect(g); g.connect(this.ac.destination);
+      o.connect(g); g.connect(this.out || this.ac.destination);
       o.start(t0); o.stop(t0 + dur + 0.02);
     },
     // ざーっという音。filter を渡すと歓声のような音になる
@@ -1740,7 +1756,7 @@ window.WORDS = {
         f.type = 'bandpass'; f.frequency.value = opt.filter; f.Q.value = 0.7;
         s.connect(f); node = f;
       }
-      node.connect(g); g.connect(this.ac.destination);
+      node.connect(g); g.connect(this.out || this.ac.destination);
       s.start(t0); s.stop(t0 + dur + 0.02);
     },
     arp(notes, step, vol, at) { notes.forEach((f, i) => this.tone(f, step * 1.2, { vol: vol, at: (at || 0) + i * step })); },
@@ -1797,7 +1813,7 @@ window.WORDS = {
         if (!S || !S.on || !S.ac) return null;
         if (!audio) {
           const ac = S.ac, output = ac.createGain();
-          output.connect(ac.destination);
+          output.connect(S.out || ac.destination); // 効果音と同じ出口（大きさをそろえる）
           const track = node => {
             sources.add(node);
             node.onended = () => { sources.delete(node); node.disconnect(); };
