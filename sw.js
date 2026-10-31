@@ -5,7 +5,7 @@
 //     ネットがある時はいつも最新。ネットが無い時だけ とっておいた物で動く
 //   ・Google Fonts は「とっておいた物をすぐ出し、裏で取り直す」（無くても ふつうの書体で動く）
 //   ・VERSION は build.py --site が作る時に日時に置き換える。版が変わると新しい入れ物を使い、古い入れ物は消す
-const VERSION = "2026-11-01_02:16";
+const VERSION = "2026-11-01_02:46";
 const PREFIX = "typing-stadium-";
 const CACHE = PREFIX + VERSION;
 const FONT_CACHE = PREFIX + "fonts";
