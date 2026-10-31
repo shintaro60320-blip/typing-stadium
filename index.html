@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="ja">
 <head>
-<!-- タイピングスタジアム / build 2026-10-31 16:40 -->
+<!-- タイピングスタジアム / build 2026-10-31 16:47 -->
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>タイピングスタジアム</title>
@@ -81,24 +81,40 @@ html, body {
 #board.low .row:nth-child(n+3), #board.low .mini { display: none; }
 #pitchlabel.away { display: none; }
 
-/* 音のオン・オフ（左下。どの画面でも見える。押すと切りかわる） */
-#soundBtn {
+/* ---- ボタン（ゲームの外の操作は ぜんぶボタンで できる） ---- */
+.gbtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: calc(2px * var(--s));
+  font: inherit;
+  font-size: calc(7px * var(--s));
+  color: var(--ink);
+  background: rgba(31, 39, 66, .92);
+  border: 0;
+  border-radius: calc(2px * var(--s));
+  padding: calc(2px * var(--s)) calc(5px * var(--s));
+  cursor: pointer;
+  transition: background .12s cubic-bezier(.2, .8, .3, 1);
+}
+.gbtn:hover { background: #2b3561; }
+.gbtn.primary { background: var(--next); color: #1a1a2e; }
+.gbtn.primary:hover { background: #f6d777; }
+.gbtn.big { font-size: calc(10px * var(--s)); padding: calc(3px * var(--s)) calc(10px * var(--s)); }
+.btnrow { display: flex; gap: calc(5px * var(--s)); justify-content: center; margin-top: calc(3px * var(--s)); }
+.btnrow.mid { align-items: center; }
+
+/* 左下：音・とばす・タイトルへ（どの画面でも見える） */
+#ctrl {
   position: absolute;
   left: calc(6px * var(--s));
   bottom: calc(6px * var(--s));
   z-index: 5;
   display: flex;
-  align-items: center;
-  gap: calc(2px * var(--s));
-  font: inherit;
-  font-size: calc(7px * var(--s));
-  color: var(--ink);
-  background: rgba(14, 18, 32, .85);
-  border: 0;
-  border-radius: calc(2px * var(--s));
-  padding: calc(2px * var(--s)) calc(4px * var(--s));
-  cursor: pointer;
+  gap: calc(3px * var(--s));
 }
+#ctrl .gbtn { background: rgba(14, 18, 32, .85); }
+#ctrl .gbtn:hover { background: #2b3561; }
 #soundBtn svg { width: calc(9px * var(--s)); height: calc(9px * var(--s)); display: block; }
 #soundBtn .on { color: var(--next); }
 #soundBtn.off { color: var(--ink-soft); }
@@ -410,11 +426,16 @@ html, body {
     <div id="linescore" hidden></div>
     <div id="banner" hidden></div>
     <div id="flash" hidden></div>
-    <button id="soundBtn" type="button" tabindex="-1" aria-pressed="true" title="おとの オン・オフ（M キー）"></button>
+    <!-- 左下のボタン（音・演出をとばす・タイトルへ）。ゲームの外の操作は ボタンで できる -->
+    <div id="ctrl">
+      <button id="soundBtn" class="gbtn" type="button" tabindex="-1" aria-pressed="true" title="おとの オン・オフ"></button>
+      <button id="skipBtn" class="gbtn" type="button" tabindex="-1" hidden>とばす ▶</button>
+      <button id="quitBtn" class="gbtn" type="button" tabindex="-1" hidden>タイトルへ</button>
+    </div>
 
     <section id="splash" class="layer">
       <h1>タイピングスタジアム</h1>
-      <p class="start">スペースキーか クリックで スタート</p>
+      <div class="btnrow"><button id="splashBtn" class="gbtn big primary" type="button" tabindex="-1">スタート</button></div>
       <p class="hint">おとが でます</p>
     </section>
 
@@ -422,8 +443,11 @@ html, body {
       <h1>タイピングスタジアム</h1>
       <p class="lead">はやく・まちがえずに うつほど ボールは とおくへ とぶ！</p>
       <div class="menu" id="menu"></div>
-      <p class="hint">↑ ↓ で えらぶ　← → で かえる　R で ランキング　O で オープニング</p>
-      <p class="start">スペースキーで プレイボール</p>
+      <div class="btnrow mid">
+        <button id="rankBtn" class="gbtn" type="button" tabindex="-1">ランキング</button>
+        <button id="playBtn" class="gbtn big primary" type="button" tabindex="-1">プレイボール！</button>
+        <button id="openingBtn" class="gbtn" type="button" tabindex="-1">オープニング</button>
+      </div>
     </section>
 
     <section id="rankview" class="layer dark" hidden>
@@ -431,15 +455,19 @@ html, body {
       <p class="sub" id="rankTitle"></p>
       <p class="hint">このパソコンの ブラウザに のこる きろくです</p>
       <ol class="ranklist" id="rankList"></ol>
-      <p class="hint">スペースキーで もどる</p>
+      <div class="btnrow"><button id="rankBackBtn" class="gbtn primary" type="button" tabindex="-1">もどる</button></div>
     </section>
 
     <section id="nameentry" class="layer dark" hidden>
       <h2>ランクイン！</h2>
       <p class="sub" id="nameRank"></p>
-      <p class="lead">なまえを ローマじで いれてね（8もじまで）</p>
+      <p class="lead">なまえを ローマじで うってね（8もじまで）</p>
       <div class="namebox" id="nameBox"></div>
-      <p class="hint">Enter で きめる　Backspace で けす　Esc で きろく せずに タイトルへ</p>
+      <div class="btnrow">
+        <button id="nameOkBtn" class="gbtn primary" type="button" tabindex="-1">きめる</button>
+        <button id="nameDelBtn" class="gbtn" type="button" tabindex="-1">1もじ けす</button>
+        <button id="nameCancelBtn" class="gbtn" type="button" tabindex="-1">きろく せずに もどる</button>
+      </div>
     </section>
 
     <section id="over" class="layer dark" hidden>
@@ -453,7 +481,10 @@ html, body {
         </div>
       </div>
       <p class="praise" id="praise"></p>
-      <p class="start">スペースキーで もういちど　Esc で タイトル</p>
+      <div class="btnrow">
+        <button id="againBtn" class="gbtn big primary" type="button" tabindex="-1">もういちど</button>
+        <button id="overTitleBtn" class="gbtn big" type="button" tabindex="-1">タイトルへ</button>
+      </div>
     </section>
   </div>
 
@@ -479,7 +510,7 @@ html, body {
     </div>
   </div>
 
-  <p id="foot">M キーで おとの オン・オフ（うっていない とき）　／　スペースキーで えんしゅつを とばす　／　Esc で タイトルへ</p>
+  <p id="foot">キーボードは ことばを うつ ときに つかいます。ほかの そうさは がめんの ボタンで できます</p>
 </main>
 
 <script>
@@ -2047,11 +2078,6 @@ window.WORDS = {
     nt.className = 'note';
     nt.textContent = note || ' ';
     ui.menu.appendChild(nt);
-    const rb = document.createElement('div');
-    rb.className = 'item';
-    rb.innerHTML = '<span class="lab"></span><span class="opts"><button id="rankBtn">ランキングを みる</button></span>';
-    ui.menu.appendChild(rb);
-    $('rankBtn').onclick = showRanking;
     setupMeters(); // 下のメーターも、えらんだ うちかた の形にする
   }
   function stepMenu(dir) {
@@ -2663,6 +2689,35 @@ window.WORDS = {
   Sound.on = settings.sound;
   renderSoundBtn();
 
+  // ---- 画面のボタン（キーボードは ことばを打つ時だけ。ほかの操作は ボタンで できる） ----
+  // 押した時は 画面のクリック（スタート・とばす）に伝えない。押したあとは ボタンから はなれる（スペースキーで二度押しにならないように）
+  function onButton(id, fn) {
+    const b = $(id);
+    b.addEventListener('pointerdown', (e) => { e.stopPropagation(); });
+    b.addEventListener('click', (e) => { e.stopPropagation(); Sound.init(); fn(); b.blur(); });
+  }
+  onButton('splashBtn', () => startOpening());
+  onButton('playBtn', () => startGame());
+  onButton('rankBtn', () => showRanking());
+  onButton('openingBtn', () => startOpening());
+  onButton('rankBackBtn', () => toTitle());
+  onButton('nameOkBtn', () => saveName());
+  onButton('nameDelBtn', () => { nameBuf = nameFresh ? '' : nameBuf.slice(0, -1); nameFresh = false; renderName(); });
+  onButton('nameCancelBtn', () => toTitle());
+  onButton('againBtn', () => startGame());
+  onButton('overTitleBtn', () => toTitle());
+  onButton('skipBtn', () => { if (phase === 'opening') { movie.skip(); endOpening(); } else skip(); });
+  onButton('quitBtn', () => toTitle());
+  const skipBtn = $('skipBtn'), quitBtn = $('quitBtn');
+  const SKIPPABLE = ['opening', 'cpu', 'change', 'banner', 'foulfly', 'caught', 'flight'];
+  const OUT_OF_GAME = ['splash', 'title', 'rank', 'over', 'name', 'opening'];
+  // 「とばす」は演出の時だけ、「タイトルへ」はゲームの最中だけ 出す
+  function renderCtrl() {
+    const sk = SKIPPABLE.indexOf(phase) < 0, qt = OUT_OF_GAME.indexOf(phase) >= 0;
+    if (skipBtn.hidden !== sk) skipBtn.hidden = sk;
+    if (quitBtn.hidden !== qt) quitBtn.hidden = qt;
+  }
+
   // ---- オープニング（opening.js は Codex が作った。11.5秒・音と声つき・どのキーでも とばせる） ----
   let movie = null;
   function startOpening() {
@@ -2896,6 +2951,7 @@ window.WORDS = {
   }
 
   function draw() {
+    renderCtrl();
     if (phase === 'opening') { movie.draw(); return; }
     const fieldView = phase === 'flight' || phase === 'cpu' || phase === 'change' || (phase === 'banner' && flight);
     ui.board.classList.toggle('low', !!fieldView);
