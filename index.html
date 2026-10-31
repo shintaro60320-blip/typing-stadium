@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="ja">
 <head>
-<!-- タイピングスタジアム / build 2026-11-01 00:30 -->
+<!-- タイピングスタジアム / build 2026-11-01 00:43 -->
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>タイピングスタジアム</title>
@@ -3207,10 +3207,14 @@ window.WORDS = {
       A.line(tail.x, tail.y, ball.x, ball.y, C.light, ball.r > 1.5 ? 1 : 0.5);
       main.globalAlpha = 1;
     }
-    // 見のがしの球は、キャッチャーが 来る所へ ミットを動かして とる
-    const catchIt = result === 'strike' && pitchTo && (phase === 'delivery' || phase === 'caught' || phase === 'banner');
-    A.catcher(catchIt ? mix2(A.MITT, pitchTo, phase === 'delivery' ? clamp01(deliveryT() * 1.4) : 1) : A.MITT);
+    // ボールは キャッチャーより向こう（ピッチャーの方）にあるので、先に描く。
+    // とった球は ミットの中に入って、後ろからは見えない
     if (ball) A.ball(ball.x, ball.y, ball.r);
+    // 見のがしの球は、キャッチャーが 来る所へ ミットを動かして とる。とった瞬間は 球の勢いで ミットが少し押される
+    const catchIt = result === 'strike' && pitchTo && (phase === 'delivery' || phase === 'caught' || phase === 'banner');
+    let mitt = catchIt ? mix2(A.MITT, pitchTo, phase === 'delivery' ? clamp01(deliveryT() * 1.4) : 1) : A.MITT;
+    if (catchIt && phase === 'caught') mitt = [mitt[0], mitt[1] + 1.5 * (1 - clamp01(pt / 0.15))];
+    A.catcher(mitt);
     A.particles(parts);
   }
 
